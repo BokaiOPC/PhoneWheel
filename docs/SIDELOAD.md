@@ -31,7 +31,7 @@ iOS App 只能用 macOS 上的 Xcode 编译成 `.ipa`。没有 Mac 就没法生�
 | 手机连接 | `idevice_id -l` 已检测到 UDID `00008130-001435C01EDA001C`，Apple Mobile Device Service Running |
 | 待你操作 | **用 Sideloadly 重装横屏新版 `.ipa` → 信任证书 / 开发者模式 → 保持 App 前台 → 联调** |
 
-> ⚠️ **手机上如果已经装了初版（竖屏）PhoneWheel，必须重装这个横屏新版**。旧包因缺 `NSMotionUsageDescription`，CoreMotion 可能启动即异常，实测 USB 隧道 `127.0.0.1:27183` 读不到任何 PWR1 数据帧（`BYTES_RECEIVED 0`）。建议先在手机上删掉旧 App，再用 Sideloadly 重新 Start 一次。
+> ⚠️ **手机上如果已经装了初版（竖屏）PhoneWheel，必须重装这个横屏新版**。旧包因缺 `NSMotionUsageDescription`，CoreMotion 可能启动即异常，实测 USB 隧道 `127.0.0.1:27183` 读不到任何 PWR1 数据帧（`BYTES_RECEIVED 0`）。建议先用 Sideloadly 以**同一个 Apple ID** 重新 Start 覆盖安装（同 bundle ID 覆盖不会额外消耗免费账号的「7 天 10 个 App ID」配额）；只有覆盖失败或报签名冲突时，才在手机上删掉旧 App 重装。
 >
 > 免费 Apple ID 请填 **账号密码 + 2FA 验证码**，不要填 App 专用密码（后者仅限付费开发者账号且关闭 anisette 时用）。
 

@@ -31,11 +31,15 @@ final class PedalUIView: UIView {
         touch.location(in: self).x < bounds.midX
     }
 
+    /// 越靠屏幕底部踩得越深（符合踩踏板的直觉）。
+    /// 旧实现是「越靠上越大」，按在屏幕底部（拇指自然位置）反而得到 0，
+    /// 用户会感觉「踩了没反应 / 延迟很高」。现在按下即给 55% 基线，
+    /// 也避免老游戏把 LT/RT 当数字键时低模拟量完全不触发。
     private func intensity(_ touch: UITouch) -> UInt8 {
         let y = touch.location(in: self).y
         let height = max(1, bounds.height - pedalTop)
-        let t = max(0, min(1, (bounds.maxY - y) / height))
-        return UInt8(t * 255)
+        let t = max(0, min(1, (y - pedalTop) / height))
+        return UInt8(140 + t * 115)
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -90,11 +94,14 @@ final class PedalUIView: UIView {
 
 struct TouchPedalView: UIViewRepresentable {
     let sender: MotionSender
+    /// 把当前踏板量回传给 SwiftUI，用于界面上实时显示百分比（也方便排障）。
+    let onState: (UInt8, UInt8) -> Void
 
     func makeUIView(context: Context) -> PedalUIView {
         let view = PedalUIView()
         view.onState = { throttle, brake in
             sender.setPedals(throttle: throttle, brake: brake)
+            onState(throttle, brake)
         }
         return view
     }

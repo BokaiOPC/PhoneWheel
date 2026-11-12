@@ -1,0 +1,64 @@
+name: Build unsigned iPhone IPA
+
+on:
+  # 只保留手动触发：上传阶段会逐个文件提交，若带 push 触发器，
+  # workflow 文件先落地时 ios/ 源码还没传完，会产生一次必然失败的构建。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate --spec project.yml
+
+      - name: Archive without code signing
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project PhoneWheel.xcodeproj \
+            -scheme PhoneWheel \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$GITHUB_WORKSPACE/build/PhoneWheel.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            clean archive
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP="$GITHUB_WORKSPACE/build/PhoneWheel.xcarchive/Products/Applications/PhoneWheel.app"
+          test -d "$APP" || { echo "未找到编译产物 $APP"; exit 1; }
+          mkdir -p "$GITHUB_WORKSPACE/ipa/Payload"
+          cp -R "$APP" "$GITHUB_WORKSPACE/ipa/Payload/"
+          cd "$GITHUB_WORKSPACE/ipa"
+          zip -qr PhoneWheel-unsigned.ipa Payload
+          ls -lh PhoneWheel-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhoneWheel-unsigned-ipa
+          path: ipa/PhoneWheel-unsigned.ipa
+          retention-days: 30

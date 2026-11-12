@@ -31,9 +31,13 @@ final class MotionSender: ObservableObject {
     }()
     private let lock = NSLock()
 
+    private let port: UInt16 = 12345
     private var listener: NWListener?
     private var connections: [NWConnection] = []
     private var sequence: UInt32 = 0
+    private var restartAttempt = 0
+    private var lastResume = Date.distantPast
+    private var listenerGeneration = 0
 
     private var throttleValue: UInt8 = 0
     private var brakeValue: UInt8 = 0
@@ -48,15 +52,63 @@ final class MotionSender: ObservableObject {
 
     // MARK: - 生命周期
 
-    func start(port: UInt16 = 12345) {
-        // 屏幕常亮 / 电量监控由 PhoneWheelApp 的 onAppear（MainActor）设置。
-        startListener(port: port)
-        startMotion()
+    /// 首次启动。之后每次回到前台只需调 resume()（幂等）。
+    func start() {
+        resume()
+    }
+
+    /// 回到前台 / 首次启动时恢复监听。
+    /// iOS 挂起 App 会回收 NWListener 的网络资源，而 SwiftUI 的 onAppear 只在视图
+    /// 首次出现时触发；若不重建，回到前台后 TCP 12345 永远不再监听，PC 端表现为
+    /// 「手机连不上」（idevice_id 仍能看到 UDID、iproxy 报 Error connecting to device）。
+    /// 由 UIApplicationDelegate.applicationDidBecomeActive 调用。
+    func resume() {
+        workQueue.async { [weak self] in
+            guard let self else { return }
+            // App 启动时 onAppear 与 applicationDidBecomeActive 会几乎同时到达，节流避免重复重建。
+            let now = Date()
+            guard now.timeIntervalSince(self.lastResume) > 0.5 else { return }
+            self.lastResume = now
+
+            self.restartAttempt = 0
+            self.rebuildListener(delay: 0.25)
+            // 后台期间 CoreMotion 回调也可能被系统停掉，无条件重启保证 100Hz 姿态流恢复。
+            self.motion.stopDeviceMotionUpdates()
+            self.startMotion()
+        }
+    }
+
+    private func rebuildListener(delay: Double) {
+        listenerGeneration += 1
+        let generation = listenerGeneration
+
+        // cancel() 是异步的：先摘掉 handler，避免旧实例的迟到回调污染新实例状态。
+        let old = listener
+        old?.newConnectionHandler = nil
+        old?.stateUpdateHandler = nil
+        old?.cancel()
+        listener = nil
+
+        connections.forEach { $0.cancel() }
+        connections.removeAll()
+        DispatchQueue.main.async { [weak self] in
+            self?.clientCount = 0
+            self?.lastMessage = "正在恢复监听…"
+        }
+
+        // 端口可能短暂处于 TIME_WAIT，稍等再重新绑定。
+        workQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.createListener(generation: generation)
+        }
     }
 
     func stop() {
         motion.stopDeviceMotionUpdates()
-        listener?.cancel()
+        let old = listener
+        old?.newConnectionHandler = nil
+        old?.stateUpdateHandler = nil
+        old?.cancel()
+        listener = nil
         connections.forEach { $0.cancel() }
         connections.removeAll()
         DispatchQueue.main.async {
@@ -98,10 +150,17 @@ final class MotionSender: ObservableObject {
 
     // MARK: - TCP 服务端
 
-    private func startListener(port: UInt16) {
+    private func createListener(generation: Int) {
+        // 若期间又发起了新的重建（例如连续前后台切换），丢弃这次过期任务。
+        guard generation == listenerGeneration else { return }
         do {
-            listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
-            listener?.newConnectionHandler = { [weak self] conn in
+            // allowLocalEndpointReuse ≈ SO_REUSEADDR/SO_REUSEPORT，允许 cancel 后快速重绑同端口。
+            // 后台恢复必须新建 NWListener 实例：旧实例进入 cancelled/failed 后无法重启。
+            let params = NWParameters.tcp
+            params.allowLocalEndpointReuse = true
+            let l = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+
+            l.newConnectionHandler = { [weak self] conn in
                 guard let self else { return }
                 self.connections.append(conn)
                 conn.stateUpdateHandler = { [weak self] state in
@@ -119,24 +178,37 @@ final class MotionSender: ObservableObject {
                     self.lastMessage = "电脑已连接 · 姿态 100Hz"
                 }
             }
-            listener?.stateUpdateHandler = { [weak self] state in
-                DispatchQueue.main.async {
-                    switch state {
-                    case .ready:
-                        self?.lastMessage = "监听 :\(port)，等待电脑连接"
-                    case .failed(let error):
-                        self?.lastMessage = "监听失败: \(error.localizedDescription)"
-                    default:
-                        break
+            l.stateUpdateHandler = { [weak self] state in
+                guard let self, generation == self.listenerGeneration else { return }
+                switch state {
+                case .ready:
+                    self.restartAttempt = 0
+                    DispatchQueue.main.async {
+                        self.lastMessage = "监听 :\(self.port)，等待电脑连接"
                     }
+                case .failed(let error):
+                    DispatchQueue.main.async {
+                        self.lastMessage = "监听失败: \(error.localizedDescription) · 正在重试"
+                    }
+                    self.scheduleRetry()
+                default:
+                    break
                 }
             }
-            listener?.start(queue: workQueue)
+            listener = l
+            l.start(queue: workQueue)
         } catch {
-            DispatchQueue.main.async {
-                self.lastMessage = "监听失败: \(error.localizedDescription)"
+            DispatchQueue.main.async { [weak self] in
+                self?.lastMessage = "监听失败: \(error.localizedDescription) · 正在重试"
             }
+            scheduleRetry()
         }
+    }
+
+    private func scheduleRetry() {
+        guard restartAttempt < 3 else { return }
+        restartAttempt += 1
+        rebuildListener(delay: 0.5)
     }
 
     private func remove(_ conn: NWConnection) {

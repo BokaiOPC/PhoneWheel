@@ -12,6 +12,9 @@ settings:
     CODE_SIGNING_REQUIRED: "NO"
     CODE_SIGN_IDENTITY: ""
     DEVELOPMENT_TEAM: ""
+    # Xcode 15+ 默认自动生成 Info.plist，会把我们提供的那份覆盖掉
+    # （曾导致 UISupportedInterfaceOrientations / NSMotionUsageDescription 全部丢失）。
+    GENERATE_INFOPLIST_FILE: "NO"
 
 targets:
   PhoneWheel:
@@ -23,12 +26,22 @@ targets:
           - "Info.plist"
     info:
       path: PhoneWheel/Info.plist
+      # 双保险：即使工程仍走自动生成的 Info.plist，这些键也会被 XcodeGen 注入。
+      properties:
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UILaunchScreen: {}
+        NSMotionUsageDescription: "需要使用动作与健身传感器，将手机姿态作为赛车方向盘的转向输入。"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.phonewheel.app
         PRODUCT_NAME: PhoneWheel
         TARGETED_DEVICE_FAMILY: "1,2"
         IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+        INFOPLIST_FILE: PhoneWheel/Info.plist
         GENERATE_INFOPLIST_FILE: "NO"
         SWIFT_VERSION: "5.0"
         CODE_SIGNING_ALLOWED: "NO"

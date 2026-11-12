@@ -21,7 +21,7 @@ iPhone 伴侣 App 以 100Hz 采集 CoreMotion 姿态四元数 → 经 usbmux（i
 
 > 首次连接需在 iPhone 上"信任此电脑"。数据线同时为手机充电，可放心常亮屏使用。
 
-**本机环境状态（2026-11-12 已完成）**：Apple Mobile Device Service 运行中；ViGEmBus 1.22.0 已安装（服务 Running）；.NET SDK 8.0.428 已安装（用户级，位于 `C:\Users\94787\.dotnet`）；libimobiledevice 工具链（iproxy.exe + 依赖 DLL）已放在 `tools/iproxy/`；插件已通过 `dotnet build -c Release` 编译成功（0 警告 0 错误）。iPhone 伴侣 App 也已在 GitHub Actions 云端编译成功，未签名包位于 **`dist/PhoneWheel-unsigned.ipa`**。**目前只剩把 .ipa 签名装进 iPhone 与实机联调。**
+**本机环境状态（2026-11-12 已完成）**：Apple Mobile Device Service 运行中；ViGEmBus 1.22.0 已安装（服务 Running）；.NET SDK 8.0.428 已安装（用户级，位于 `C:\Users\94787\.dotnet`）；libimobiledevice 工具链（iproxy.exe + 依赖 DLL）已放在 `tools/iproxy/`；插件已通过 `dotnet build -c Release` 编译成功（0 警告 0 错误）。iPhone 伴侣 App 也已在 GitHub Actions 云端编译成功，**横屏新版**未签名包位于 **`dist/PhoneWheel-unsigned.ipa`**（53,307 字节）。**目前只剩把横屏新版 .ipa 重装进 iPhone 与实机联调。**
 
 ## 目录结构
 
@@ -85,9 +85,12 @@ src/PhoneWheel.Plugin/bin/Release/net8.0-windows/PhoneWheel.Plugin.exe
 iOS App 只能在 macOS 上编译，本项目走「**云端编译 + 本地签名**」。**云端部分已经做完**：
 
 - Public 仓库：<https://github.com/BokaiOPC/PhoneWheel>（`main`，Actions 已跑通）
-- 成功构建：<https://github.com/BokaiOPC/PhoneWheel/actions/runs/43135835911>
-- 产物已下载到本机：**`dist/PhoneWheel-unsigned.ipa`**（未签名，49 KB，内含 `Payload/PhoneWheel.app/PhoneWheel`）
+- 成功构建：**横屏新版** <https://github.com/BokaiOPC/PhoneWheel/actions/runs/43147881853>（初版 <.../43135835911> 为竖屏包，已废弃）
+- 产物已下载到本机：**`dist/PhoneWheel-unsigned.ipa`**（横屏版，53,307 字节，未签名；旧竖屏包备份在 `dist/PhoneWheel-unsigned-portrait-OLD.ipa.bak`）
+- 已验证新包 `Payload/PhoneWheel.app/Info.plist` 含 `UISupportedInterfaceOrientations = [LandscapeLeft, LandscapeRight]`、`UIStatusBarHidden = true`、`NSMotionUsageDescription`；二进制含强制横屏 AppDelegate
 - CI runner 用 `macos-15`（macOS 14 镜像已于 2026-11-02 从 GitHub Actions 退役，继续写 `macos-14` 会让任务 0 秒被取消）
+
+> ⚠️ 手机上若已装初版（竖屏）App，**请先用 Sideloadly 重装这个横屏新版**：旧包缺 `NSMotionUsageDescription`，实测 USB 隧道读不到 PWR1 姿态帧。
 
 你只剩两步：
 

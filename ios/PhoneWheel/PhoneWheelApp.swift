@@ -9,11 +9,18 @@ final class PhoneWheelAppDelegate: NSObject, UIApplicationDelegate {
                      supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         .landscape
     }
+
+    /// iOS 挂起会回收 App 的 TCP 监听；回到前台必须重建，否则电脑端一直显示离线。
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        UIApplication.shared.isIdleTimerDisabled = true
+        MotionSender.shared.resume()
+    }
 }
 
 @main
 struct PhoneWheelApp: App {
     @UIApplicationDelegateAdaptor(PhoneWheelAppDelegate.self) var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -24,6 +31,14 @@ struct PhoneWheelApp: App {
                     UIApplication.shared.isIdleTimerDisabled = true
                     UIDevice.current.isBatteryMonitoringEnabled = true
                     MotionSender.shared.start()
+                }
+                // 双保险：部分 iOS 版本不会转发 applicationDidBecomeActive，
+                // scenePhase 一定能感知前台切换。resume() 内部有节流，重复调用安全。
+                .onChange(of: scenePhase) { phase in
+                    if phase == .active {
+                        UIApplication.shared.isIdleTimerDisabled = true
+                        MotionSender.shared.resume()
+                    }
                 }
         }
     }

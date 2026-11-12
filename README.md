@@ -36,7 +36,7 @@ PhoneWheel/
 │  ├─ Program.cs                 入口
 │  ├─ Core/Quat.cs               四元数 / 向量数学
 │  ├─ Core/SteeringEngine.cs     姿态→转角解算、滤波、死区、校准、看门狗
-│  ├─ Transport/IproxyLauncher.cs  usbmux 隧道进程管理（自动重拉）
+│  ├─ Transport/IproxyLauncher.cs  usbmux 隧道进程管理（自动重拉 + 静默看门狗）
 │  ├─ Transport/SensorClient.cs   TCP 帧编解码与重连
 │  ├─ Virtual/ViGEmBridge.cs      虚拟 Xbox 360 手柄封装
 │  └─ App/                       托盘 + 状态窗口
@@ -63,7 +63,10 @@ dotnet build src/PhoneWheel.Plugin/PhoneWheel.Plugin.csproj -c Release
 src/PhoneWheel.Plugin/bin/Release/net8.0-windows/PhoneWheel.Plugin.exe
 ```
 
-托盘图标右键 → "状态窗口" 可查看实时转角、踏板、链路状态。程序启动后**没有主窗口**，只有右下角托盘图标。
+托盘图标右键 → "状态窗口" 可查看实时转角、踏板、链路状态。程序启动后**没有主窗口**，只有右下角托盘图标。托盘菜单共四项：**状态窗口 / 校准中位 / 重连 USB 隧道 / 退出**。
+
+> **USB 隧道会自动恢复**：重装手机 App、重新插拔数据线或手机锁屏后，usbmux 会话可能被重枚举，此时 `iproxy` 进程仍存活、端口仍能连上，但设备侧连接已僵死（表现为端口可连、`PWR1` 帧为 0 字节）。插件在连续 4 秒收不到帧时会自动杀掉并重拉 `iproxy`（两次至少间隔 15 秒），`SensorClient` 随后 2s 退避重连；也可以随时点托盘 **「重连 USB 隧道」** 手动触发。
+> 2026-11-12 实测：Sideloadly 重装横屏版 App 后，老隧道确实进入这种半死状态；重启插件后 `127.0.0.1:27183` 4 秒内收到 25,935 字节 / 约 399 个 PWR1 帧（100Hz），帧头 `50575231` 正确。
 
 > **本机启动方式（重要）**：.NET 8 SDK 是**用户级**安装在 `C:\Users\94787\.dotnet`。从资源管理器直接双击 `PhoneWheel.Plugin.exe` 会弹「You must install .NET Desktop Runtime」—— 因为 Explorer 会话没继承 `DOTNET_ROOT`，apphost 找不到 `hostfxr.dll`（Windows 事件日志 `.NET Runtime` 里可见 `Failed to resolve hostfxr.dll`）。
 > 请双击桌面上的 **`PhoneWheel-Start.bat`**：它用绝对路径的 `C:\Users\94787\.dotnet\dotnet.exe` 直接加载 `PhoneWheel.Plugin.dll`，绕过 apphost 查找。重新登录 / 重启 Windows 后，直接双击 exe 也可以。
@@ -111,8 +114,9 @@ iOS App 只能在 macOS 上编译，本项目走「**云端编译 + 本地签名
 - **双击弹出「You must install .NET Desktop Runtime」**：.NET 8 是用户级安装，改用桌面 `PhoneWheel-Start.bat` 启动；或重新登录 / 重启 Windows 后再双击 exe。
 - **双击后完全没反应**：先看 exe 同目录有没有 `crash.log`（新版会记录异常并弹窗）。没有 crash.log 就说明已正常启动 —— 托盘程序本来就没有主窗口，到右下角托盘（可能在 `^` 里）右键 → **状态窗口**。
 - **iproxy 启动失败/隧道不通**：确认 iTunes（或 Apple Mobile Device Support）已安装、Apple Mobile Device Service 正在运行；手机已解锁并信任电脑；重插数据线。本机 `iproxy` 新版参数是 `27183:12345`（冒号单参数）。
+- **端口能连但读不到任何 PWR1 帧（链路显示离线）**：多半是上述「隧道僵死」，点托盘 **「重连 USB 隧道」** 或重启插件即可；新版也会自动重拉。注意 Sideloadly 每次重装 App 都会触发一次。
 - **虚拟手柄不被识别**：检查 ViGEmBus 是否安装；以管理员运行一次安装程序；设备管理器中应出现"Virtual Xbox 360 Controller"。
-- **没反应**：看状态窗口"链路"是否在线、校准是否完成；iPhone 需允许"动作与健身"权限（NSMotionUsageDescription）。
+- **手机转了但游戏没反应**：看状态窗口"链路"是否在线、校准是否完成、转向条是否随手机左右变化。CoreMotion 的原始 device-motion 流**不会**弹「运动与健身」授权框，不弹窗是正常的；`NSMotionUsageDescription` 只是 Info.plist 必备键，无需手动去设置里开权限。
 - **延迟/抖动**：调 `appsettings.json` 中 `steering.deadzoneDeg` / `sensitivity`；100Hz 帧 + 本地回环，端到端通常 12–25ms。
 
 ## 说明与边界

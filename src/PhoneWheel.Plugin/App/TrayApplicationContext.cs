@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 using PhoneWheel.Plugin.Config;
@@ -24,11 +25,18 @@ public sealed class TrayApplicationContext : ApplicationContext
     private DateTime _lastFrameUtc = DateTime.UtcNow;
     private DateTime _lastTunnelRestartUtc = DateTime.MinValue;
     private bool _everReceivedFrame;
+    private int _staleRestartCount;
+
+    private readonly string _configPath;
+    private DateTime _configWriteUtc;
+    private DateTime _lastConfigCheckUtc = DateTime.MinValue;
 
     public TrayApplicationContext(string iproxyPath, AppConfig config)
     {
         _engine = new SteeringEngine(config.Steering);
         _iproxy = new IproxyLauncher(iproxyPath, config.Transport.LocalPort, config.Transport.DevicePort);
+        _configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        _configWriteUtc = File.Exists(_configPath) ? File.GetLastWriteTimeUtc(_configPath) : DateTime.MinValue;
 
         _tray = new NotifyIcon
         {
@@ -78,6 +86,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             }
 
             RecoverStaleTunnel();
+            ReloadConfigIfChanged();
             _status.UpdateStatus(_engine, _engine.IsOnline && _sensor.IsConnected);
         };
         _tick.Start();
@@ -92,6 +101,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         _lastFrameUtc = DateTime.UtcNow;
         _everReceivedFrame = true;
+        _staleRestartCount = 0;
         _engine.Update(s);
 
         // 首帧自动以当前姿态为中位，随后可由托盘菜单显式重新校准
@@ -99,6 +109,40 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             _engine.CaptureNeutral(s.Attitude);
         }
+    }
+
+    /// <summary>
+    /// appsettings.json 热重载：调手感需要反复试，改完存盘 0.5s 内生效，
+    /// 不必重启插件、不必重新校准中位。只替换标量参数，不动传输与虚拟手柄。
+    /// </summary>
+    private void ReloadConfigIfChanged()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastConfigCheckUtc).TotalMilliseconds < 500)
+        {
+            return;
+        }
+        _lastConfigCheckUtc = now;
+
+        DateTime write;
+        try
+        {
+            write = File.Exists(_configPath) ? File.GetLastWriteTimeUtc(_configPath) : DateTime.MinValue;
+        }
+        catch
+        {
+            return; // 文件正被编辑器写入，下一轮再读
+        }
+
+        if (write == _configWriteUtc)
+        {
+            return;
+        }
+        _configWriteUtc = write;
+
+        var fresh = AppConfig.Load(_configPath);
+        _engine.ApplyConfig(fresh.Steering);
+        _status.AppendLog($"配置已热重载 → {_engine.ConfigSummary}");
     }
 
     /// <summary>
@@ -114,14 +158,24 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
 
         var now = DateTime.UtcNow;
+        // 连续重拉仍无数据时降频，并给出更可能的原因（App 被 iOS 挂起 / 未信任 / 线松了）。
+        var minInterval = _staleRestartCount >= 3 ? 30 : 15;
         if ((now - _lastFrameUtc).TotalSeconds <= 4 ||
-            (now - _lastTunnelRestartUtc).TotalSeconds <= 15)
+            (now - _lastTunnelRestartUtc).TotalSeconds <= minInterval)
         {
             return;
         }
 
         _lastTunnelRestartUtc = now;
-        _status.AppendLog("USB 隧道静默超过 4 秒，自动重拉 iproxy…");
+        _staleRestartCount++;
+        if (_staleRestartCount == 1)
+        {
+            _status.AppendLog("USB 隧道静默超过 4 秒，自动重拉 iproxy…");
+        }
+        else if (_staleRestartCount == 3)
+        {
+            _status.AppendLog("多次重拉仍无数据：请确认手机 PhoneWheel 在前台、未锁屏，且数据线已点『信任』");
+        }
         _iproxy.RequestRestart();
     }
 

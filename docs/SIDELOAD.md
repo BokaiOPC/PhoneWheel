@@ -25,10 +25,15 @@ iOS App 只能用 macOS 上的 Xcode 编译成 `.ipa`。没有 Mac 就没法生�
 | 项目 | 状态 |
 |------|------|
 | Public 仓库 | <https://github.com/BokaiOPC/PhoneWheel>（账号 `BokaiOPC`，默认分支 `main`，24 个源码文件） |
-| 云端编译 | 已成功：<https://github.com/BokaiOPC/PhoneWheel/actions/runs/43135835911>（`macos-15`，Xcode 16.4，无签名 archive） |
-| `.ipa` 产物 | **已下载到本机 `dist/PhoneWheel-unsigned.ipa`**（49,990 字节，含 `Payload/PhoneWheel.app/PhoneWheel` + `Info.plist` + `PkgInfo`） |
-| 手机连接 | `idevice_id -l` 已检测到 UDID `00008030-000E15562240802E`，Apple Mobile Device Service Running |
-| 待你操作 | **只剩「步骤 3 装侧载工具」→「步骤 4 用 Apple ID 签名安装」→「步骤 5 联调」** |
+| 云端编译 | 已成功：**最新横屏版** <https://github.com/BokaiOPC/PhoneWheel/actions/runs/43147881853>（`macos-15`，Xcode 16.4，无签名 archive）；初版 <https://github.com/BokaiOPC/PhoneWheel/actions/runs/43135835911> 是竖屏包，**已废弃** |
+| `.ipa` 产物 | **已替换为横屏新版 `dist/PhoneWheel-unsigned.ipa`**（53,307 字节，SHA256 `f610ffd5f291740ee92bfad0588d012fffb9c9f0bdf4f8877a851a0d98504579`）；旧竖屏包备份为 `dist/PhoneWheel-unsigned-portrait-OLD.ipa.bak` |
+| 横屏 / 传感器修复 | 旧包打包后的 `Info.plist` 丢失 `UISupportedInterfaceOrientations`、`UIStatusBarHidden`、`NSMotionUsageDescription`（Xcode 自动生成 plist 覆盖了源码）。新版用 `GENERATE_INFOPLIST_FILE=NO` + `INFOPLIST_FILE` + XcodeGen `info.properties` + `UIApplicationDelegate` 返回 `.landscape` 四层保障；已实测新包三键齐全，且二进制内含 `PhoneWheelAppDelegate` / `supportedInterfaceOrientationsFor` 符号 |
+| 手机连接 | `idevice_id -l` 已检测到 UDID `00008130-001435C01EDA001C`，Apple Mobile Device Service Running |
+| 待你操作 | **用 Sideloadly 重装横屏新版 `.ipa` → 信任证书 / 开发者模式 → 保持 App 前台 → 联调** |
+
+> ⚠️ **手机上如果已经装了初版（竖屏）PhoneWheel，必须重装这个横屏新版**。旧包因缺 `NSMotionUsageDescription`，CoreMotion 可能启动即异常，实测 USB 隧道 `127.0.0.1:27183` 读不到任何 PWR1 数据帧（`BYTES_RECEIVED 0`）。建议先在手机上删掉旧 App，再用 Sideloadly 重新 Start 一次。
+>
+> 免费 Apple ID 请填 **账号密码 + 2FA 验证码**，不要填 App 专用密码（后者仅限付费开发者账号且关闭 anisette 时用）。
 
 > 已经拿到 `.ipa` 了，下面的步骤 1、2 只是留作以后重新构建时的说明，**现在可以直接跳到步骤 3**。
 

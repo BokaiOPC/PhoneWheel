@@ -22,6 +22,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly StatusForm _status = new();
     private readonly System.Windows.Forms.Timer _tick = new() { Interval = 8 };
 
+    private readonly DateTime _startedUtc = DateTime.UtcNow;
     private DateTime _lastFrameUtc = DateTime.UtcNow;
     private DateTime _lastTunnelRestartUtc = DateTime.MinValue;
     private bool _everReceivedFrame;
@@ -102,6 +103,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         _lastFrameUtc = DateTime.UtcNow;
         _everReceivedFrame = true;
         _staleRestartCount = 0;
+        _lastTunnelRestartUtc = DateTime.MinValue;
         _engine.Update(s);
 
         // 首帧自动以当前姿态为中位，随后可由托盘菜单显式重新校准
@@ -146,22 +148,28 @@ public sealed class TrayApplicationContext : ApplicationContext
     }
 
     /// <summary>
-    /// 隧道静默看门狗：重装 App / 数据线重插后，iproxy 可能仍存活且端口仍可连接，
-    /// 但设备侧 usbmux 连接已僵死，SensorClient 的 ReadAsync 会一直阻塞、不会触发重连。
-    /// 连续 4 秒收不到帧就主动重拉，两次重拉至少间隔 15 秒，避免手机锁屏时刷屏。
+    /// 隧道静默看门狗，覆盖两种卡死：重装 App / 数据线重插后，
+    /// iproxy 可能仍存活且本地端口仍可连接，但设备侧连接已死。
+    ///  A) 曾收到帧后连续 4s 无帧（App 挂起 / 拔线 / Sideloadly 重装后 usbmux 重枚举）；
+    ///  B) 冷启动僵死：插件启动时手机 listener 尚未就绪，SensorClient 连上半开连接、
+    ///     从未收到任何帧，ReadAsync 一直阻塞不会重连。旧版要求「曾收到帧」才触发，
+    ///     这种场景会永久卡死，手机一直显示「等待电脑」。
+    /// 重拉 iproxy 会同时打断 SensorClient 的半开连接，触发其 2s 退避重连。
     /// </summary>
     private void RecoverStaleTunnel()
     {
-        if (!_everReceivedFrame)
+        var now = DateTime.UtcNow;
+        var uptime = (now - _startedUtc).TotalSeconds;
+        var silentSec = (now - _lastFrameUtc).TotalSeconds;
+        var stalled = _everReceivedFrame ? silentSec > 4 : uptime > 10;
+        if (!stalled)
         {
-            return; // 还没连上过，交给 SensorClient 自己的 2s 退避重连
+            return;
         }
 
-        var now = DateTime.UtcNow;
-        // 连续重拉仍无数据时降频，并给出更可能的原因（App 被 iOS 挂起 / 未信任 / 线松了）。
+        // 连续重拉仍无数据时降频，避免手机锁屏时刷屏。
         var minInterval = _staleRestartCount >= 3 ? 30 : 15;
-        if ((now - _lastFrameUtc).TotalSeconds <= 4 ||
-            (now - _lastTunnelRestartUtc).TotalSeconds <= minInterval)
+        if ((now - _lastTunnelRestartUtc).TotalSeconds <= minInterval)
         {
             return;
         }
@@ -170,7 +178,9 @@ public sealed class TrayApplicationContext : ApplicationContext
         _staleRestartCount++;
         if (_staleRestartCount == 1)
         {
-            _status.AppendLog("USB 隧道静默超过 4 秒，自动重拉 iproxy…");
+            _status.AppendLog(_everReceivedFrame
+                ? "USB 隧道静默超过 4 秒，自动重拉 iproxy…"
+                : "启动后一直没收到手机数据，自动重拉 USB 隧道…");
         }
         else if (_staleRestartCount == 3)
         {

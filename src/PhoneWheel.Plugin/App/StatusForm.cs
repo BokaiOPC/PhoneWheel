@@ -8,7 +8,10 @@ namespace PhoneWheel.Plugin.App;
 /// <summary>状态窗口：实时转角 / 踏板 / 链路 / 日志，便于校准与排障。</summary>
 public sealed class StatusForm : Form
 {
-    private readonly ProgressBar _steer = new() { Minimum = -100, Maximum = 100, Width = 280, Height = 18 };
+    // WinForms ProgressBar.Minimum 不允许负数（必须 >= 0），否则构造函数直接抛
+    // ArgumentOutOfRangeException 导致整个托盘进程静默退出。转向用 0..200 表示，
+    // 100 为中位：显示值 = 100 + (轴值 / 327)，对应 -100..+100。
+    private readonly ProgressBar _steer = new() { Minimum = 0, Maximum = 200, Value = 100, Width = 280, Height = 18 };
     private readonly ProgressBar _throttle = new() { Minimum = 0, Maximum = 100, Width = 280, Height = 18 };
     private readonly ProgressBar _brake = new() { Minimum = 0, Maximum = 100, Width = 280, Height = 18 };
     private readonly Label _info = new() { AutoSize = true };
@@ -39,7 +42,7 @@ public sealed class StatusForm : Form
             Padding = new Padding(12),
             WrapContents = false,
         };
-        panel.Controls.Add(new Label { Text = "转向（-100..100）", AutoSize = true });
+        panel.Controls.Add(new Label { Text = "转向（左 -100 ← 中位 → 右 +100）", AutoSize = true });
         panel.Controls.Add(_steer);
         panel.Controls.Add(new Label { Text = "油门", AutoSize = true });
         panel.Controls.Add(_throttle);
@@ -69,7 +72,7 @@ public sealed class StatusForm : Form
             return;
         }
 
-        _steer.Value = Math.Clamp(engine.AxisValue / 327, -100, 100);
+        _steer.Value = Math.Clamp(100 + engine.AxisValue / 327, 0, 200);
         _throttle.Value = engine.Throttle * 100 / 255;
         _brake.Value = engine.Brake * 100 / 255;
         _info.Text = $"链路: {(link ? "在线" : "离线")}   " +

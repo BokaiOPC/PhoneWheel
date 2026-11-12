@@ -81,7 +81,7 @@ src/PhoneWheel.Plugin/bin/Release/net8.0-windows/PhoneWheel.Plugin.exe
 
 1. 手机进入伴侣 App，按驾驶握持姿势拿好（或装上车载支架）；
 2. 保持当前姿势，点手机 App 上的 **「校准中位」**（会通知电脑端重置水平中位；也可点电脑托盘菜单同名项）；
-3. 直接进游戏即可 —— 左右转角即方向盘锁止角内线性映射（默认 540°，可配置）。
+3. 直接进游戏即可 —— 左右转角在锁止角内映射（F1 预设 270°，带中位柔化曲线，见下节）。
 
 ## 没有 Mac：把 App 装到 iPhone（云端编译已完成）
 
@@ -104,10 +104,60 @@ iOS App 只能在 macOS 上编译，本项目走「**云端编译 + 本地签名
 
 > 如果觉得 GitHub 麻烦，**借一台 Mac 用 30 分钟**用 Xcode 真机运行一次其实更省事，之后所有刷新都在这台 Windows 上完成。
 
+## 手感调参（改完立即生效，不用重启）
+
+参数在插件同目录 `appsettings.json`，即 `src/PhoneWheel.Plugin/bin/Release/net8.0-windows/appsettings.json`。**存盘 0.5 秒后热重载**：不重启插件、不重新校准中位；状态窗口实时显示当前参数，日志会打印一条「配置已热重载」。
+
+| 参数 | F1 2017 预设 | 作用 / 怎么调 |
+|---|---|---|
+| `maxLockDeg` | `270` | 打满方向盘需要手机转过的总角度。F1 真车 lock-to-lock 约 240–270°；**调大更迟钝、调小更灵敏**。回神力科莎 / ACC 改 `540`–`900` |
+| `deadzoneDeg` | `2.0` | 中位死区。直线仍轻微摆头 → 加到 `3`–`4`；觉得起步有迟滞 → 降到 `1` |
+| `expo` | `0.35` | 中位柔化。`0` = 纯线性；直线发飘 → `0.5`；想要更贼 → `0.15` |
+| `sensitivity` | `1.0` | 整体增益，等效缩放满打点 |
+| `maxStepDegPerSec` | `1400` | 换向速度上限。快速左右打跟不上 → `1800`；姿态偶发跳变 → `900` |
+| `invert` | `false` | 左右反了就改 `true` |
+
+曲线 `curve(x) = (1−e)·x + e·x³`（x 为归一化转角），端点仍是 ±1，**不会损失满打行程**，只压低中位附近增益。实测对照（摇杆打满 = 100%）：
+
+| 手机转角 | 旧 540° 线性 | 新 270° + Expo 0.35 |
+|---|---|---|
+| 5° | 1.5% | 1.4% |
+| 30° | 10.7% | 13.8% |
+| 90° | 33.0% | 52.1% |
+| 135° | 49.6% | 97.5% |
+
+也就是**直路依旧稳、弯里能真正打满**。旧配置 540° 时人手最多转 90°、摇杆才到 1/3，再叠加 F1 2017 自身的高速转向衰减，体感就是「转不动、推头」。
+
 ## 游戏内设置
 
-- **神力科莎 / ACC**：Options → Controls，选手柄（Xbox）预设或手动把转向绑到左摇杆 X；在转向设置里调 Steering scale 与最大转角。
-- **F1 系列（2016–24）**：默认识别 XInput 手柄；F1 23/24 建议开启 "Analog Steering"；RT/LT 即油门/刹车。
+- **神力科莎 / ACC**：Options → Controls，选手柄（Xbox）预设或手动把转向绑到左摇杆 X；把 `maxLockDeg` 改回 `540`–`900`，游戏内 Steering scale 设 1.0。
+- **F1 系列（2016–24）**：默认识别 XInput 手柄；RT/LT 即油门/刹车，RB/LB 升降挡；F1 23/24 建议开启 "Analog Steering"。
+
+### F1 2017 具体设置
+
+1. 主菜单按 **F2**（Game Options）→ **Settings** → **Customise Controls** → **Control Schemes**，选 **Gamepad / Xbox 360** 预设。Windows 版原生支持 XInput，ViGEm 虚拟手柄会被认成标准 Xbox 360 手柄（Feral 手册里「必须切 DirectInput」那条只针对 Mac 移植版，Windows 不用管）。
+2. 同页确认或手动绑定：
+
+   | 游戏动作 | 绑到 |
+   |---|---|
+   | Steering | 左摇杆 X（Left Stick X） |
+   | Accelerate / Brake | RT / LT |
+   | Gear Up / Gear Down | RB / LB |
+   | DRS（建议） | X —— 手机端「视角左」，开车时用不上左右看 |
+   | Pause / Menu | Start |
+
+3. 进 **Controller Settings / Calibration**（转向校准页）按表调：
+
+   | 游戏内项 | 建议值 | 原因 |
+   |---|---|---|
+   | Steering Deadzone | **0**（直线飘才给 3–5） | 插件已有 2° 死区，别叠加 |
+   | Steering Saturation | **0** | 只在摇杆打不满 100% 时给 4–6；我们端点就是 ±1 |
+   | Steering Linearity | **0–10**（仍发飘给 15–25） | 插件已做 Expo 曲线，游戏里再叠会过度发钝 |
+   | Speed Sensitivity / Steering Rate（若该版本有） | 尽量调低 | F1 2017 高速会主动削弱摇杆转向，是推头主因之一 |
+   | Steering Lock / Wheel Rotation（若有） | **270** | 与 `maxLockDeg` 对齐 |
+
+4. 关闭 **Steering Assist（转向辅助）**，否则会和手机输入打架；牵引力控制按喜好留中等即可。
+5. 先去 **Time Trial / Practice** 跑两圈，别直接开生涯：直线松手看车会不会自己跑偏（跑偏 → 手机重新点「校准中位」），再试 90° 弯能不能一把打满。
 
 ## 常见问题
 
@@ -115,9 +165,10 @@ iOS App 只能在 macOS 上编译，本项目走「**云端编译 + 本地签名
 - **双击后完全没反应**：先看 exe 同目录有没有 `crash.log`（新版会记录异常并弹窗）。没有 crash.log 就说明已正常启动 —— 托盘程序本来就没有主窗口，到右下角托盘（可能在 `^` 里）右键 → **状态窗口**。
 - **iproxy 启动失败/隧道不通**：确认 iTunes（或 Apple Mobile Device Support）已安装、Apple Mobile Device Service 正在运行；手机已解锁并信任电脑；重插数据线。本机 `iproxy` 新版参数是 `27183:12345`（冒号单参数）。
 - **端口能连但读不到任何 PWR1 帧（链路显示离线）**：多半是上述「隧道僵死」，点托盘 **「重连 USB 隧道」** 或重启插件即可；新版也会自动重拉。注意 Sideloadly 每次重装 App 都会触发一次。
+- **日志反复「自动重拉 iproxy」却始终无数据**：这次多半不是隧道问题，而是 **手机 App 被 iOS 挂起**（锁屏、切到别的应用、手机放下）。把 PhoneWheel 切回前台并解锁即可；App 内已禁用自动锁屏，但手动锁屏仍会让网络监听停掉。`idevice_id -l` 能看到 UDID 只证明数据线连着，不代表 App 在监听 TCP 12345（独立隧道会报 `Error connecting to device`）。
 - **虚拟手柄不被识别**：检查 ViGEmBus 是否安装；以管理员运行一次安装程序；设备管理器中应出现"Virtual Xbox 360 Controller"。
 - **手机转了但游戏没反应**：看状态窗口"链路"是否在线、校准是否完成、转向条是否随手机左右变化。CoreMotion 的原始 device-motion 流**不会**弹「运动与健身」授权框，不弹窗是正常的；`NSMotionUsageDescription` 只是 Info.plist 必备键，无需手动去设置里开权限。
-- **延迟/抖动**：调 `appsettings.json` 中 `steering.deadzoneDeg` / `sensitivity`；100Hz 帧 + 本地回环，端到端通常 12–25ms。
+- **延迟/抖动**：状态窗口能实时看到 `锁止 / 死区 / Expo / 灵敏度 / 限速`；边跑边改同目录 `appsettings.json`，0.5 秒热生效，不用重启也不用重新校准。100Hz 帧 + 本地回环，端到端通常 12–25ms。
 
 ## 说明与边界
 

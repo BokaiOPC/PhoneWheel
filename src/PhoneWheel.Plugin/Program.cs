@@ -13,8 +13,33 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
 
-        var config = AppConfig.Load(Path.Combine(AppContext.BaseDirectory, "appsettings.json"));
-        var iproxyPath = Path.Combine(AppContext.BaseDirectory, "tools", "iproxy", "iproxy.exe");
-        Application.Run(new TrayApplicationContext(iproxyPath, config));
+        try
+        {
+            var config = AppConfig.Load(Path.Combine(AppContext.BaseDirectory, "appsettings.json"));
+            var iproxyPath = Path.Combine(AppContext.BaseDirectory, "tools", "iproxy", "iproxy.exe");
+            Application.Run(new TrayApplicationContext(iproxyPath, config));
+        }
+        catch (Exception ex)
+        {
+            // 托盘程序没有控制台，未处理异常会「双击后什么都没发生」。
+            // 这里统一兜底：写 crash.log + 弹窗，让故障可见。
+            var logPath = Path.Combine(AppContext.BaseDirectory, "crash.log");
+            try
+            {
+                File.AppendAllText(logPath,
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {ex}{Environment.NewLine}");
+            }
+            catch
+            {
+                // 日志写不了也要把错误显示出来
+            }
+
+            MessageBox.Show(
+                $"PhoneWheel 启动失败：{ex.Message}{Environment.NewLine}{Environment.NewLine}" +
+                $"详情见 {logPath}",
+                "PhoneWheel",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
     }
 }

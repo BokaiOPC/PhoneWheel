@@ -2,16 +2,22 @@ import SwiftUI
 import UIKit
 
 /// 主界面：上半屏是功能键与状态，下半屏是左右触摸踏板。
-/// 手机横屏握持，屏幕朝上略向后倾；保持姿势后点"校准中位"即可开始转向。
+/// roll 模式（默认）：手机横屏竖握 / 略向后倾，屏幕朝向自己，像真方向盘一样绕视线轴左右滚转；
+/// 保持握持姿势后点「校准中位」。若平放手机当转盘，需在 PC 端把 steering.mode 改成 yaw。
 struct ContentView: View {
     @ObservedObject private var sender = MotionSender.shared
     @State private var showInfo = false
+    @State private var throttlePct = 0
+    @State private var brakePct = 0
 
     var body: some View {
         ZStack(alignment: .top) {
             Color(red: 0.04, green: 0.05, blue: 0.07).ignoresSafeArea()
 
-            TouchPedalView(sender: sender).ignoresSafeArea()
+            TouchPedalView(sender: sender) { t, b in
+                throttlePct = Int(t) * 100 / 255
+                brakePct = Int(b) * 100 / 255
+            }.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
@@ -57,9 +63,9 @@ struct ContentView: View {
             VStack {
                 Spacer()
                 HStack {
-                    Text("左下：刹车")
+                    Text("左下：刹车 \(brakePct)%")
                     Spacer()
-                    Text("右下：油门")
+                    Text("右下：油门 \(throttlePct)%")
                 }
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.white.opacity(0.35))
@@ -120,8 +126,9 @@ private struct InfoSheet: View {
                 Text("手机通过数据线连接电脑，本机监听 TCP 12345；电脑端 iproxy 把该端口转发到本地 27183。")
                 Text("使用步骤")
                     .font(.headline)
-                Text("1. 插好数据线并在手机上点「信任此电脑」\n2. 电脑上启动 PhoneWheel 插件\n3. 保持驾驶握持姿势，点「校准中位」\n4. 进入神力科莎 / F1，绑定 Xbox 手柄预设")
-                Text("左右下角按住为刹车/油门，手指上下滑动控制深度；两指可同时按（循迹刹车）。")
+                Text("1. 插好数据线并在手机上点「信任此电脑」\n2. 电脑上启动 PhoneWheel 插件\n3. 手机横屏、屏幕朝向自己（像握方向盘），保持姿势点「校准中位」\n4. 进入神力科莎 / F1，绑定 Xbox 手柄预设")
+                Text("转向：像转真方向盘一样左右滚转手机，不要把手机平放当转盘。若习惯平放转盘，把电脑端 appsettings.json 的 steering.mode 改成 yaw。")
+                Text("踏板：左右下角按住为刹车/油门，越靠下踩得越深、按下即 55%；两指可同时按（循迹刹车）。屏幕底部会实时显示百分比。")
                 Text("请保持本 App 在前台、屏幕常亮（数据线会同时充电）。")
                     .foregroundColor(.secondary)
                 Spacer()

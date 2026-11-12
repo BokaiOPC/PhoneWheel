@@ -12,11 +12,23 @@ import Network
 /// - 数据线连接时由 PC 端 iproxy 做端口转发（本地 27183 ↔ 设备 12345）。
 ///
 /// 需前台运行、屏幕常亮；Info.plist 已声明 NSMotionUsageDescription。
+///
+/// 线程约定：
+/// - workQueue（DispatchQueue）= Network.framework 回调 + 组帧发送，独占 connections / sequence；
+/// - motionQueue（OperationQueue）= CoreMotion 回调，收到数据后立即转交 workQueue；
+/// - 主线程只做 UI 与 UIKit 设置；踏板/按钮标量用 NSLock 保护。
 final class MotionSender: ObservableObject {
     static let shared = MotionSender()
 
     private let motion = CMMotionManager()
     private let workQueue = DispatchQueue(label: "phonewheel.motion", qos: .userInteractive)
+    private let motionQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.name = "phonewheel.coremotion"
+        q.qualityOfService = .userInitiated
+        q.maxConcurrentOperationCount = 1
+        return q
+    }()
     private let lock = NSLock()
 
     private var listener: NWListener?
@@ -37,8 +49,7 @@ final class MotionSender: ObservableObject {
     // MARK: - 生命周期
 
     func start(port: UInt16 = 12345) {
-        UIDevice.current.isIdleTimerDisabled = true
-        UIDevice.current.isBatteryMonitoringEnabled = true
+        // 屏幕常亮 / 电量监控由 PhoneWheelApp 的 onAppear（MainActor）设置。
         startListener(port: port)
         startMotion()
     }
@@ -146,11 +157,15 @@ final class MotionSender: ObservableObject {
             return
         }
         motion.deviceMotionUpdateInterval = 1.0 / 100.0
-        // .xArbitraryZVertical：Z 轴固定为重力反向，不依赖磁力计，抗车内磁场干扰
-        motion.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: workQueue) { [weak self] data, error in
+        // .xArbitraryZVertical：Z 轴固定为重力反向，不依赖磁力计，抗车内磁场干扰。
+        // CoreMotion 的 handler 版本要 OperationQueue（不是 DispatchQueue）。
+        motion.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: motionQueue) { [weak self] data, error in
             guard let self, let data, error == nil else { return }
-            self.latestAttitude = data.attitude
-            self.broadcast(data)
+            // 统一到 workQueue 后再访问 connections / sequence，避免与 NW 回调竞争。
+            self.workQueue.async {
+                self.latestAttitude = data.attitude
+                self.broadcast(data)
+            }
         }
     }
 
@@ -212,12 +227,14 @@ final class MotionSender: ObservableObject {
 
     /// 手机端一键校准：向 PC 发送 flags=0x10 的空载荷帧，PC 端据此重置中位。
     func sendCalibrationRequest() {
-        let frame = header(flags: 0x10, payloadLen: 0)
-        for conn in connections where conn.state == .ready {
-            conn.send(content: frame, completion: .contentProcessed { _ in })
-        }
-        DispatchQueue.main.async {
-            self.lastMessage = "已发送校准请求 · 中位已重置"
+        workQueue.async {
+            let frame = self.header(flags: 0x10, payloadLen: 0)
+            for conn in self.connections where conn.state == .ready {
+                conn.send(content: frame, completion: .contentProcessed { _ in })
+            }
+            DispatchQueue.main.async {
+                self.lastMessage = "已发送校准请求 · 中位已重置"
+            }
         }
     }
 

@@ -1,0 +1,45 @@
+name: PhoneWheel
+options:
+  bundleIdPrefix: com.phonewheel
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGN_IDENTITY: ""
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  PhoneWheel:
+    type: application
+    platform: iOS
+    sources:
+      - path: PhoneWheel
+        excludes:
+          - "Info.plist"
+    info:
+      path: PhoneWheel/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.phonewheel.app
+        PRODUCT_NAME: PhoneWheel
+        TARGETED_DEVICE_FAMILY: "1,2"
+        IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+        GENERATE_INFOPLIST_FILE: "NO"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+
+schemes:
+  PhoneWheel:
+    build:
+      targets:
+        PhoneWheel: all
+    run:
+      config: Release
+    archive:
+      config: Release

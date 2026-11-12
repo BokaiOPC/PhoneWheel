@@ -88,9 +88,9 @@ src/PhoneWheel.Plugin/bin/Release/net8.0-windows/PhoneWheel.Plugin.exe
 iOS App 只能在 macOS 上编译，本项目走「**云端编译 + 本地签名**」。**云端部分已经做完**：
 
 - Public 仓库：<https://github.com/BokaiOPC/PhoneWheel>（`main`，Actions 已跑通）
-- 成功构建：**最新前台自动恢复版** <https://github.com/BokaiOPC/PhoneWheel/actions/runs/43166450196>（前一版 <.../43147881853> 修横屏；初版 <.../43135835911> 为竖屏包，已废弃）
-- 产物已下载到本机：**`dist/PhoneWheel-unsigned.ipa`**（57,179 字节，SHA256 `e56b857c61d305e2432fba4ee432e511ad16d1449e0d051142548456f5373e0e`，未签名）；前一版备份在 `dist/PhoneWheel-unsigned-previous.ipa.bak`，旧竖屏包在 `dist/PhoneWheel-unsigned-portrait-OLD.ipa.bak`
-- 已验证新包 `Payload/PhoneWheel.app/Info.plist` 含 `UISupportedInterfaceOrientations = [LandscapeLeft, LandscapeRight]`、`UIStatusBarHidden = true`、`NSMotionUsageDescription`；二进制含 `applicationDidBecomeActive` / `allowLocalEndpointReuse` / `scenePhase`（前台恢复监听）
+- 成功构建：**最新版（含踏板修复）** <https://github.com/BokaiOPC/PhoneWheel/actions/runs/43171444459>；前版 <.../43166450196> 修前台恢复，<.../43147881853> 修横屏，初版 <.../43135835911> 为竖屏包（已废弃）
+- 产物已下载到本机：**`dist/PhoneWheel-unsigned.ipa`**（59,401 字节，SHA256 `d58639fd821c5c3f…`，未签名）；历史版本备份在 `dist/PhoneWheel-unsigned-previous.ipa.bak` 与 `dist/PhoneWheel-unsigned-portrait-OLD.ipa.bak`
+- 已验证新包 `Payload/PhoneWheel.app/Info.plist` 含 `UISupportedInterfaceOrientations = [LandscapeLeft, LandscapeRight]`、`UIStatusBarHidden = true`、`NSMotionUsageDescription`；二进制含 `applicationDidBecomeActive` / `allowLocalEndpointReuse` / `throttlePct`
 - CI runner 用 `macos-15`（macOS 14 镜像已于 2026-11-02 从 GitHub Actions 退役，继续写 `macos-14` 会让任务 0 秒被取消）
 
 > ⚠️ 手机上若已装初版（竖屏）App，**请先用 Sideloadly 重装这个横屏新版**：旧包缺 `NSMotionUsageDescription`，实测 USB 隧道读不到 PWR1 姿态帧。
@@ -108,14 +108,29 @@ iOS App 只能在 macOS 上编译，本项目走「**云端编译 + 本地签名
 
 参数在插件同目录 `appsettings.json`，即 `src/PhoneWheel.Plugin/bin/Release/net8.0-windows/appsettings.json`。**存盘 0.5 秒后热重载**：不重启插件、不重新校准中位；状态窗口实时显示当前参数，日志会打印一条「配置已热重载」。
 
-| 参数 | F1 2017 预设 | 作用 / 怎么调 |
+| 参数 | 当前默认（F1 2017） | 作用 / 怎么调 |
 |---|---|---|
-| `maxLockDeg` | `270` | 打满方向盘需要手机转过的总角度。F1 真车 lock-to-lock 约 240–270°；**调大更迟钝、调小更灵敏**。回神力科莎 / ACC 改 `540`–`900` |
+| `mode` | **`"roll"`** | **方向盘模式**：手机竖握/斜握、屏幕朝向自己，像真方向盘一样绕视线轴左右滚转。若把手机平放当转盘，改成 `"yaw"` |
+| `maxLockDeg` | `180` | 打满方向盘需要手机转过的总角度。roll 模式按手腕舒适范围设为 180（±90°）；改大更迟钝、改小更灵敏。yaw / 神力科莎 / ACC 可用 `540`–`900` |
 | `deadzoneDeg` | `2.0` | 中位死区。直线仍轻微摆头 → 加到 `3`–`4`；觉得起步有迟滞 → 降到 `1` |
 | `expo` | `0.35` | 中位柔化。`0` = 纯线性；直线发飘 → `0.5`；想要更贼 → `0.15` |
 | `sensitivity` | `1.0` | 整体增益，等效缩放满打点 |
 | `maxStepDegPerSec` | `1400` | 换向速度上限。快速左右打跟不上 → `1800`；姿态偶发跳变 → `900` |
-| `invert` | `false` | 左右反了就改 `true` |
+| `invert` | `false` | **左右反了就改 `true`**（不同握法物理方向不同，第一次试时看状态窗口的「当前角 / 轴值」符号确认） |
+
+> **握法判定**：状态窗口会显示「姿态信号 0.xx」。低于 0.35 说明握法和模式不匹配，窗口直接给出该把手机竖起来还是平放。
+>
+> 为什么必须有 `mode`：实测手机平放时重力为 `g≈(0,0,−1)`；旧算法测的是手机 +Y 轴在参考系水平面的投影夹角（绕**世界竖直轴**的 yaw），而「转方向盘」是绕**视线轴**的滚转。数值对照：
+>
+> | 方向盘转角 | roll 模式解算角 | 旧 yaw 可用投影（需 >0.5） |
+> |---|---|---|
+> | −90° | +90° | 1.00 可用 |
+> | −30° | +30° | 0.50 丢弃 |
+> | 0° | 0° | 0.00 丢弃 |
+> | +30° | −30° | 0.50 丢弃 |
+> | +90° | −90° | 1.00 可用 |
+>
+> 即旧算法 **±30° 内完全无反应、要转到 ±90° 才满**，且中位附近投影被噪声主导容易只剩单边 —— 正是「非常不灵敏 / 只有右转 / 要转 90° 才有反应」。roll 模式用 `θ = −wrap(atan2(g.x, g.y) − 中位)`，全程线性对称。表中符号取竖屏物理朝向，横屏握持若左右相反，把 `invert` 设 `true`。
 
 曲线 `curve(x) = (1−e)·x + e·x³`（x 为归一化转角），端点仍是 ±1，**不会损失满打行程**，只压低中位附近增益。实测对照（摇杆打满 = 100%）：
 
@@ -167,7 +182,7 @@ iOS App 只能在 macOS 上编译，本项目走「**云端编译 + 本地签名
 - **端口能连但读不到任何 PWR1 帧（链路显示离线）**：多半是上述「隧道僵死」，点托盘 **「重连 USB 隧道」** 或重启插件即可；新版也会自动重拉。注意 Sideloadly 每次重装 App 都会触发一次。
 - **日志反复「自动重拉 iproxy」却始终无数据**：多半不是隧道问题，而是 **手机 App 被 iOS 挂起**（锁屏、切到别的应用、手机放下）。`idevice_id -l` 能看到 UDID 只证明数据线连着；此时独立 `iproxy` 连 12345 报 `Error connecting to device`，而连系统 lockdown 端口 `62078` 却能成功 —— 这个二分法可以直接判定「手机/驱动/信任都正常，只有 App 没在监听」。
   - **当前已装的横屏版**：iOS 回收 `NWListener` 后旧代码不会重建监听，**光切回前台不够**，要**上划强制退出 PhoneWheel 再重新打开**。
-  - **新版（已构建完成：`dist/PhoneWheel-unsigned.ipa`，57,179 字节）**：`applicationDidBecomeActive` + `scenePhase` 会重建监听（`allowLocalEndpointReuse` + 延迟重绑 + 失败重试 + 幂等节流）。用 Sideloadly 重装这一次后，以后切回前台自动恢复，不用再强制退出。
+  - **最新版（已构建完成：`dist/PhoneWheel-unsigned.ipa`，59,401 字节）**：`applicationDidBecomeActive` + `scenePhase` 会重建监听（`allowLocalEndpointReuse` + 延迟重绑 + 失败重试 + 幂等节流），并修正了踏板方向（越靠下越深、按下即 55%）。用 Sideloadly 重装这一次后，切回前台自动恢复、踏板即时响应。
 - **虚拟手柄不被识别**：检查 ViGEmBus 是否安装；以管理员运行一次安装程序；设备管理器中应出现"Virtual Xbox 360 Controller"。
 - **手机转了但游戏没反应**：看状态窗口"链路"是否在线、校准是否完成、转向条是否随手机左右变化。CoreMotion 的原始 device-motion 流**不会**弹「运动与健身」授权框，不弹窗是正常的；`NSMotionUsageDescription` 只是 Info.plist 必备键，无需手动去设置里开权限。
 - **延迟/抖动**：状态窗口能实时看到 `锁止 / 死区 / Expo / 灵敏度 / 限速`；边跑边改同目录 `appsettings.json`，0.5 秒热生效，不用重启也不用重新校准。100Hz 帧 + 本地回环，端到端通常 12–25ms。

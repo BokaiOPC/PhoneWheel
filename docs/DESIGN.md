@@ -69,14 +69,14 @@
 | 参考系 | `.xArbitraryZVertical` | Z 轴固定为重力反向，**不依赖磁力计**，抗车内磁场/金属干扰 |
 | 姿态语义 | `attitude.quaternion`：设备坐标系 → 参考坐标系 | 与 PC 端解算约定一致 |
 
-`NSMotionUsageDescription` 需在 Info.plist 声明；App 需前台运行；`isIdleTimerDisabled = true` 常亮屏（有线充电兜底）。
+`NSMotionUsageDescription` 需在 Info.plist 声明（Xcode 15+ 自动生成 Info.plist 会覆盖手写的键，须设 `GENERATE_INFOPLIST_FILE=NO` + `INFOPLIST_FILE`）；App 需前台运行；`UIApplication.shared.isIdleTimerDisabled = true` 常亮屏（有线充电兜底）。原始 `deviceMotion` 流**不会**弹「运动与健身」授权框，不弹窗属正常；该键只是启动 CoreMotion 的必备声明。
 
 ### 3.3 交互
 
 - **触摸踏板**：屏幕底部左右角触摸区，按下位置映射 0–255；支持双指同时按（循迹刹车）；有触觉确认。
 - **功能按钮**：右拨片=升挡、左拨片=降挡、A=手刹、X/B=视角左右、Y=重置车辆、Start/Back=菜单/返回。
 - **校准**：界面「校准中位」按钮向 PC 发送 `flags=0x10` 空载荷帧，PC 端用最近一帧姿态重置水平中位；引导界面提示"按驾驶握持姿势持机"。
-- **锁止角**：默认 540°，可在 App 内设置（与 PC 端 `steering.maxLockDeg` 同步，以 PC 端为准）。
+- **锁止角**：以 PC 端 `steering.maxLockDeg` 为准（当前 roll 预设 **180°**，yaw/转盘握法用 `540`–`900`）；App 侧只发送中位校准请求，不改锁止角。
 
 ### 3.4 触觉反馈（二期）
 
@@ -97,8 +97,12 @@ PC 端下发指令帧（`flags=0x01`）：短震 / 持续震动（强度+时长�
 - 进程模型：插件启动时拉起 `tools/iproxy/iproxy.exe <本地端口>:<设备端口>`（默认 `27183:12345`）。注意本机所用 `jrjr/libimobiledevice-windows` 新版为**冒号单参数**格式，旧版才是两个空格分隔数字，传错会直接打印 usage 退出；
 - 依赖 AMDS（`127.0.0.1:27015`），iTunes 安装后自带；
 - 监管策略：探测本地端口可连即视为隧道就绪；进程退出（设备拔出/AMDS 重启）按 0.5s→5s 退避重拉；稳定运行 > 30s 后重置退避计数，使下一次重拉立即发生；
-- **静默看门狗（关键）**：重装 iPhone App、Sideloadly 重签名、数据线重插或手机锁屏会让 usbmux 会话重枚举，此时 `iproxy` 进程**仍存活、本地端口仍可 connect**，但设备侧连接已僵死，`SensorClient` 的 `ReadAsync` 会一直阻塞而不触发 TCP 重连。因此 `TrayApplicationContext` 在「曾收到过帧、但连续 4s 无新帧」时调用 `IproxyLauncher.RequestRestart()` 杀掉进程触发重拉（两次间隔 ≥ 15s，避免锁屏时刷屏）；托盘菜单同时提供 **「重连 USB 隧道」** 手动入口；
-- 实测（2026-11-12）：Sideloadly 重装横屏版 App 后旧隧道进入半死状态（4s 读 0 字节）；重启插件后 `127.0.0.1:27183` 4s 收到 25,935B / 约 399 帧，帧头 `50575231`。因此「App 重开无需重启插件」仅在 usbmux 会话未重枚举时成立，不能作为通用假设。
+- **静默看门狗（关键）**：重装 iPhone App、Sideloadly 重签名、数据线重插或手机锁屏会让 usbmux 会话重枚举，此时 `iproxy` 进程**仍存活、本地端口仍可 connect**，但设备侧连接已僵死，`SensorClient` 的 `ReadAsync` 会一直阻塞而不触发 TCP 重连。因此 `TrayApplicationContext.RecoverStaleTunnel()` 覆盖两种卡死：
+  - **A. 曾有帧后静默**：连续 4s 无新帧即调用 `IproxyLauncher.RequestRestart()` 杀掉进程触发重拉（两次间隔 ≥ 15s；连续失败 ≥3 次降频到 30s，避免锁屏时刷屏）；
+  - **B. 冷启动零帧**：插件启动时手机 `NWListener` 尚未就绪，`SensorClient` 连上**半开连接**、从未收到任何帧，`ReadAsync` 永久阻塞，也不会触发 TCP 重连。旧版只在「曾收到过帧」时才判定，这种场景会永久卡死、手机一直显示「等待电脑」。新版在启动 10s 仍零帧时同样重拉隧道，重拉会打断半开连接进而触发 `SensorClient` 的 2s 退避重连；
+  - 托盘菜单同时提供 **「重连 USB 隧道」** 手动入口。
+- **单实例保护（`Program.cs`）**：命名 `Mutex(@"Local\PhoneWheel.Plugin.SingleInstance")`。重复双击启动器会产生两个 `dotnet` + 两个 `iproxy` 抢同一个 27183 与同一条 USB 隧道，表现正是「手机一直等待电脑 / 链路时通时断」。第二实例弹窗提示后直接退出。
+- 实测（2026-11-12）：Sideloadly 重装横屏版 App 后旧隧道进入半死状态（4s 读 0 字节）；重启插件后 `127.0.0.1:27183` 4s 收到 25,935B / 约 399 帧，帧头 `50575231`。修复冷启动看门狗后，4s / 19s 两次采样均为 19,5xxB ≈ 300 帧（100Hz）。因此「App 重开无需重启插件」仅在 usbmux 会话未重枚举时成立，不能作为通用假设。
 
 ### 4.2 帧协议（PWR1）
 
@@ -111,7 +115,9 @@ PC 端下发指令帧（`flags=0x01`）：短震 / 持续震动（强度+时长�
 | TCP 重连 | 失败 2s 退避 | 自动恢复 |
 | 帧看门狗 | 200ms 无任何帧 | 判定离线：**方向盘回中 + 松油门/刹车 + 清按钮**，托盘提示 |
 | 进程监管 | iproxy 退出即重拉 | 插拔数据线 5s 内恢复 |
-| 隧道静默看门狗 | 曾有帧 + 连续 4s 无帧，间隔 ≥ 15s | 主动杀掉 iproxy 触发重拉，修复「进程活着但设备侧已死」 |
+| 隧道静默看门狗 | 曾有帧 + 连续 4s 无帧，间隔 ≥ 15s（≥3 次后 30s） | 主动杀掉 iproxy 触发重拉，修复「进程活着但设备侧已死」 |
+| 冷启动零帧看门狗 | 启动 10s 仍一帧未收 | 重拉 iproxy 打断半开连接，修复手机「等待电脑」永久卡死 |
+| 单实例保护 | 命名 Mutex | 阻止多份插件抢 27183 与同一条 USB 隧道 |
 | 版本协商 | Hello 帧 | protoVersion 不匹配 → 错误码 1 并关闭连接 |
 
 > 安全设计：看门狗触发即"熄火"，避免手机断开后游戏卡油门——这是方向盘外设的底线行为。
@@ -170,7 +176,7 @@ f  = Horizontal( q ⊗ a_fwd ⊗ q* )    q：姿态四元数（设备系→参�
 - **中位柔化曲线**：`x = clamp(θ / (maxLock/2) × sensitivity, ±1)`，`axis = [(1−e)·x + e·x³] × 32767`，`e` 默认 0.35。端点仍为 ±1，**不损失满打行程**，只压低中位附近增益。手机陀螺仪抖动比实体摇杆大，纯线性在 F1 2017 直路上会摆头；
 - **热重载**：`TrayApplicationContext` 每 500ms 比较 `appsettings.json` 的 `LastWriteTimeUtc`，变化即调用 `SteeringEngine.ApplyConfig()` 原地替换标量参数（并夹到合法范围，防止 0 锁止角除零），**不重置中位校准、不打断链路**；状态窗口显示当前生效参数，配置标签做了文本去抖避免 100Hz 重绘闪烁。
 
-F1 2017 预设（270° / 2° / expo 0.35）实测映射，摇杆打满 = 100%：
+F1 2017 调参过程中的线性→曲线对比（270° / 2° / expo 0.35），摇杆打满 = 100%：
 
 | 手机转角 | 5° | 30° | 90° | 135° |
 |---|---|---|---|---|
@@ -178,6 +184,8 @@ F1 2017 预设（270° / 2° / expo 0.35）实测映射，摇杆打满 = 100%：
 | 新 270° + Expo 0.35 | 1.4% | 13.8% | 52.1% | 97.5% |
 
 小角度几乎不变（直路依旧稳），大角度能真正打满（弯里够用）。旧配置 540° 下人手最多转 90°、摇杆仅到 1/3，叠加 F1 2017 自身的高速转向衰减，体感即「转不动、推头」。
+
+> **当前实际预设是 roll 模式 180°**（见 5.7）：上表是 540°→270° 的调参对比，用来说明 Expo 曲线「不损失满打行程、只压低中位增益」的性质。roll 模式下 `maxLockDeg=180` 意味着手腕转 ±90° 即打满，游戏内若有 Steering Lock / Wheel Rotation 也应设为 **180** 与之对齐。
 
 ### 5.4 输入映射
 
@@ -208,13 +216,30 @@ F1 2017 预设（270° / 2° / expo 0.35）实测映射，摇杆打满 = 100%：
 
 ### 5.7 配置（appsettings.json）
 
+以下是当前随插件分发的 **roll / F1 预设**（`mode` 与 `maxLockDeg` 由 5.2 节的动作模型决定；`vigemEnabled` 是顶层布尔，不是嵌套对象）：
+
 ```json
 {
-  "transport": { "mode": "usb", "localPort": 27183, "devicePort": 12345 },
-  "steering": { "maxLockDeg": 540, "deadzoneDeg": 1.0, "sensitivity": 1.0, "invert": false, "forwardAxis": "0,1,0" },
-  "vigem": { "enabled": true }
+  "transport": {
+    "mode": "usb",
+    "localPort": 27183,
+    "devicePort": 12345
+  },
+  "steering": {
+    "mode": "roll",
+    "maxLockDeg": 180,
+    "deadzoneDeg": 2.0,
+    "sensitivity": 1.0,
+    "invert": false,
+    "forwardAxis": "0,1,0",
+    "expo": 0.35,
+    "maxStepDegPerSec": 1400
+  },
+  "vigemEnabled": true
 }
 ```
+
+`mode=yaw` 时把 `maxLockDeg` 调回 `540`–`900`（平放转盘握法），其余参数不变。改完存盘 0.5s 内热重载生效，不重启、不重置中位校准（见 5.3）。
 
 ---
 
@@ -223,7 +248,7 @@ F1 2017 预设（270° / 2° / expo 0.35）实测映射，摇杆打满 = 100%：
 ### 6.1 神力科莎 / Assetto Corsa Competizione
 
 - 直接识别虚拟 XInput 手柄；Options → Controls 选择 Xbox 预设，或在转向设置里手动绑定左摇杆 X；
-- 转向设置内调 `Steering scale` 与最大转角（建议与 `maxLockDeg` 一致，540° 或按喜好 270°/900°）；
+- 转向设置内调 `Steering scale` 与最大转角：改用 `steering.mode="yaw"` 后把 `maxLockDeg` 调回 `540`–`900` 并让游戏内最大转角与之对齐；若沿用默认 `roll` 预设（180°），游戏内保持 180 即可；
 - Content Manager 可进一步微调死区与线性度。
 
 ### 6.2 F1 系列（2016–24）
@@ -267,7 +292,7 @@ F1 2017 预设（270° / 2° / expo 0.35）实测映射，摇杆打满 = 100%：
 **用户侧（iPhone）**
 
 - 伴侣 App：Xcode 真机部署 / AltStore 侧载 / 开发者账号；
-- iOS 15+；允许"动作与健身"权限。
+- iOS 15+；`NSMotionUsageDescription` 已声明（原始 deviceMotion 流无需用户授权，不会弹权限框）；iOS 16+ 侧载还需开启「开发者模式」并信任开发者证书。
 
 **运行权限**：插件本体免管理员；仅驱动安装需要。
 

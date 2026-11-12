@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Windows.Forms;
 using PhoneWheel.Plugin.App;
 using PhoneWheel.Plugin.Config;
@@ -12,6 +13,20 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
+
+        // 单实例保护：重复双击启动器会让两个插件抢同一个 27183 端口和同一条 USB 隧道，
+        // 表现为手机「等待电脑」、链路时通时断。第二个实例直接提示后退出。
+        using var single = new Mutex(true, @"Local\PhoneWheel.Plugin.SingleInstance", out bool createdNew);
+        if (!createdNew)
+        {
+            MessageBox.Show(
+                "PhoneWheel 已经在运行了。" + Environment.NewLine + Environment.NewLine +
+                "请到右下角托盘（可能在 ^ 里）找图标，右键 → 状态窗口。",
+                "PhoneWheel",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
 
         try
         {
@@ -40,6 +55,11 @@ internal static class Program
                 "PhoneWheel",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
+        }
+        finally
+        {
+            try { single.ReleaseMutex(); }
+            catch { /* 进程退出时系统也会自动释放 */ }
         }
     }
 }

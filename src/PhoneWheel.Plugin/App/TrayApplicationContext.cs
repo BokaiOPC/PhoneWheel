@@ -58,7 +58,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         _sensor.FrameReceived += OnFrame;
         _sensor.CalibrationRequested += () =>
         {
-            _engine.CaptureNeutral(_engine.LastAttitude);
+            _engine.CaptureNeutral();
             _status.AppendLog("收到手机端校准请求：中位已重置");
         };
         _sensor.Log += _status.AppendLog;
@@ -107,7 +107,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         // 首帧自动以当前姿态为中位，随后可由托盘菜单显式重新校准
         if (!_engine.IsCalibrated)
         {
-            _engine.CaptureNeutral(s.Attitude);
+            _engine.CaptureNeutral();
         }
     }
 
@@ -181,7 +181,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private void CalibrateNeutral()
     {
-        _engine.CaptureNeutral(_engine.LastAttitude);
+        _engine.CaptureNeutral();
         _status.AppendLog($"已校准中位（当前角归零，锁止角 {_engine.IsCalibrated}）");
     }
 

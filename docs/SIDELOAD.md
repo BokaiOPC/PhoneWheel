@@ -71,7 +71,7 @@ iOS App 只能用 macOS 上的 Xcode 编译成 `.ipa`。没有 Mac 就没法生�
    - 或到 <https://altstore.io> 下载安装包。
    安装后运行，托盘出现菱形图标；防火墙提示时允许专用网络。
 3. iPhone **用数据线连接电脑 → 解锁 → 弹窗点「信任此电脑」**。
-4. 点托盘 AltServer 图标 → **Install AltStore** → 选你的 iPhone → 输入 Apple ID 与密码（凭据只发给 Apple 用于签名；建议单独注册一个小号 Apple ID 专用于侧载）。
+4. 点托盘 AltServer 图标 → **Install AltStore** → 选你的 iPhone → 输入 **Apple ID 与账号密码**（凭据只发给 Apple 用于签名；建议单独注册一个小号 Apple ID 专用于侧载）。同样不要用 App 专用密码，见下方 Sideloadly 注意事项。
 5. 手机上：
    - **设置 → 通用 → VPN 与设备管理 → 点你的 Apple ID → 信任**
    - iOS 16 及以上还需：**设置 → 隐私与安全性 → 开发者模式 → 打开并重启**
@@ -83,7 +83,9 @@ iOS App 只能用 macOS 上的 Xcode 编译成 `.ipa`。没有 Mac 就没法生�
 3. 等待签名安装完成，桌面出现 **PhoneWheel**。
    - 若提示未受信任，回到「设置 → 通用 → VPN 与设备管理」再信任一次。
 
-> **更省事的备选**：装 **Sideloadly**（`winget install -e --id iOSGods.Sideloadly`，或 <https://sideloadly.io>）。数据线连手机 → 把 `.ipa` 拖进窗口 → 填 Apple ID → 点 Start 即可，不用在手机上装 AltStore。它是闭源软件，介意的话用 AltStore（开源）。
+> **更省事的备选（当前推荐）**：装 **Sideloadly**，从 <https://sideloadly.io> 下载安装包（winget 的 0.60.0 清单哈希已过期，会报「安装程序哈希不匹配」，别用 winget）。数据线连手机 → 把 `.ipa` 拖进窗口 → 填 Apple ID → 点 Start，不用在手机上装 AltStore。它是闭源软件，介意的话用 AltStore（开源）。
+
+> ⚠️ **免费 Apple ID 千万不要填 App 专用密码**。Sideloadly 官方 FAQ 原文：*App-specific password can only work if you are using a paid Apple Developer ID with anisette option disabled*。免费账号必须填 **Apple ID 账号本身的登录密码**，点 Start 后在弹窗里输入手机/邮箱收到的 **6 位双重认证验证码**。填专用密码会持续登录失败，连续重试又会触发 Apple 限流，表现就是「网络不稳定」或「请 10 分钟后再试」。
 
 ## 步骤 5 · 开玩
 
@@ -117,6 +119,11 @@ iOS App 只能用 macOS 上的 Xcode 编译成 `.ipa`。没有 Mac 就没法生�
 | 云端构建失败（Archive / Swift 报错） | 展开日志看 `error:` 行；常见坑：屏幕常亮要用 `UIApplication.shared.isIdleTimerDisabled`（不是 `UIDevice`），`startDeviceMotionUpdates(using:to:)` 要 `OperationQueue`（不是 `DispatchQueue`） |
 | 云端构建失败 | 展开日志看最后报错，把内容发我 |
 | AltServer 看不到 iPhone | 装 Apple 官网版 iTunes + iCloud；`Win+R` → `services.msc` 重启 **Apple Mobile Device Service**；重插数据线并重新点「信任」 |
+| **Sideloadly 报「网络不稳定」/「请 10 分钟后再试」/ `-36607`** | ① 立刻停手，等 10–15 分钟再试（每次点击都会刷新 Apple 限流计时）；② 别用 App 专用密码，改填**账号密码 + 2FA 验证码**；③ 浏览器登录 <https://developer.apple.com/account> 接受开发者条款、并在 <https://appleid.apple.com> 确认账号未被锁定 |
+| **Sideloadly 报 `Failed to obtain anisette` / 500 / Guru Meditation** | 远程 anisette 服务器临时故障：Advanced Settings 里把 **Remote Anisette 切到 Local Anisette**（依赖本机 Apple 官网版 iTunes，非 Microsoft Store 版）；或稍后再试 |
+| **Sideloadly 报 `-22406` / 账号密码错误** | 确认 Apple ID 与密码是登录 appleid.apple.com 用的那一组；国内手机号账号用登录时的完整格式；不要用 App 专用密码 |
+| **Sideloadly 报 `np_client_new failed: NP_E_CONN_FAILED` / `LOCKDOWN_E_INVALID_HOST_ID`** | 确认装的是 Apple 官网版 iTunes，打开 iTunes 连一次手机同步；手机上重插线并重新点「信任此电脑」 |
+| **提示 `maximum App ID limit ... 10 App IDs every 7 days`** | 免费账号 7 天最多注册 10 个 App ID，反复重试容易撞限；等几天或换一个 Apple ID |
 | 手机打开 App 提示「不受信任的开发者」 | 设置 → 通用 → VPN 与设备管理 → 信任你的 Apple ID |
 | 插件托盘显示「离线」 | 确认手机 App 在前台、屏幕常亮、电脑端 iproxy 隧道已就绪；数据线换一条原装线试试 |
 | 转向没反应 | 手机点一次「校准中位」；游戏内确认已绑定 Xbox 手柄预设 |

@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macOS 14 镜像已于 2026-11-02 从 GitHub Actions 退役，继续用会在 0 秒被取消
+    # （注解：The configuration 'macos-14-arm64-us-default' is not supported）。
+    # macos-15 是 arm64 标准 runner，Public 仓库免费可用。
+    runs-on: macos-15
     timeout-minutes: 45
 
     steps:

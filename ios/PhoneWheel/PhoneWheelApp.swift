@@ -1,8 +1,20 @@
 import SwiftUI
 import UIKit
 
+/// 强制横屏：不依赖 Info.plist（Xcode 15+ 有时会用自动生成的 Info.plist 覆盖
+/// 我们提供的那份，导致 UISupportedInterfaceOrientations 丢失）。
+/// 通过 UIApplicationDelegate 返回 .landscape 是最可靠的一层保障。
+final class PhoneWheelAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        .landscape
+    }
+}
+
 @main
 struct PhoneWheelApp: App {
+    @UIApplicationDelegateAdaptor(PhoneWheelAppDelegate.self) var appDelegate
+
     var body: some Scene {
         WindowGroup {
             ContentView()

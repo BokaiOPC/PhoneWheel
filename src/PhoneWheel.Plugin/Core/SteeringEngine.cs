@@ -31,8 +31,16 @@ public readonly struct AttitudeSample
 /// <summary>方向盘手感配置（appsettings.json 映射）。</summary>
 public sealed class SteeringConfig
 {
-    /// <summary>虚拟方向盘总锁止角（度）。F1 约 270（真实 lock-to-lock），GT / 街车 540–900。</summary>
-    public float MaxLockDeg { get; set; } = 270f;
+    /// <summary>
+    /// 解算模式：
+    /// "roll" = 重力在屏幕平面内的方向角，手机竖握/斜握、屏幕朝向自己，像真方向盘一样绕视线轴转（默认）；
+    /// "yaw"  = 手机 +Y 轴在参考系水平面投影的夹角，手机平放、像转盘一样绕竖直轴转。
+    /// 两种握法的物理动作完全不同，选错会表现为「转 90° 才有反应 / 只有一边能转」。
+    /// </summary>
+    public string Mode { get; set; } = "roll";
+
+    /// <summary>虚拟方向盘总锁止角（度）。roll 模式建议 180（手腕舒适范围 ±90°），yaw/GT 可 540–900。</summary>
+    public float MaxLockDeg { get; set; } = 180f;
 
     /// <summary>中位死区（度），消除手部微抖与支架旷量。</summary>
     public float DeadzoneDeg { get; set; } = 2.0f;
@@ -43,7 +51,7 @@ public sealed class SteeringConfig
     /// <summary>反转左右方向。</summary>
     public bool Invert { get; set; }
 
-    /// <summary>手机"12 点方向"在设备坐标系中的轴，默认 (0,1,0) = 横屏顶部朝前。</summary>
+    /// <summary>手机"12 点方向"在设备坐标系中的轴，默认 (0,1,0) = 横屏顶部朝前（yaw 模式用）。</summary>
     public Vec3 ForwardAxis { get; set; } = new(0f, 1f, 0f);
 
     /// <summary>
@@ -61,18 +69,27 @@ public sealed class SteeringConfig
 }
 
 /// <summary>
-/// 方向盘引擎：四元数姿态 → 方向盘角（度）→ XInput 轴值。
-/// 核心思路：手机"12 点方向"轴在当前参考系水平面的投影，与校准中位时的夹角即方向盘角，
-/// 与支架俯仰角度、握持抖动无关（详见 docs/DESIGN.md 5.2）。
+/// 方向盘引擎：姿态 → 方向盘角（度）→ XInput 轴值。
+///
+/// 支持两种互补的物理动作（见 SteeringConfig.Mode）：
+///  - roll：θ = -wrap( atan2(g.x, g.y) - 中位 )。重力在设备屏幕平面(XY)内的方向角
+///    随手机绕屏幕法线（视线轴）的滚转线性变化，±180° 满量程，正是「转方向盘」。
+///    手机竖握/斜握时 |g.xy|≈1 可靠；平放时 |g.xy|≈0 不可靠。
+///  - yaw：f = Horizontal(q ⊗ a_fwd ⊗ q*)，θ = atan2((f × f₀)·ẑ, f·f₀)。测绕世界竖直轴
+///    的偏航，手机平放时 |f.xy|≈1 可靠；竖握时 |f.xy|≈0 不可靠。
 /// </summary>
 public sealed class SteeringEngine
 {
+    private const float Rad2Deg = 180f / MathF.PI;
+
     private readonly SteeringConfig _cfg;
 
     private Vec3 _neutralForward;
+    private float _neutralRollDeg;
     private bool _calibrated;
     private float _rawAngle;
     private float _angle;
+    private float _signalQuality;
     private long _lastFrameTicks = -1;
     private bool _online;
 
@@ -86,15 +103,27 @@ public sealed class SteeringEngine
     public bool IsCalibrated => _calibrated;
     public float AngleDeg => _angle;
     public Quat LastAttitude { get; private set; } = Quat.Identity;
+    public Vec3 LastGravity { get; private set; } = new(0f, -1f, 0f);
+
+    /// <summary>姿态信号质量 0..1。过低说明握法与该模式不匹配。</summary>
+    public float SignalQuality => _signalQuality;
+
+    /// <summary>当前握法是否适合所选模式，以及该怎么拿手机。</summary>
+    public string ModeHint => _signalQuality >= 0.35f
+        ? "信号良好"
+        : _cfg.Mode == "yaw"
+            ? "信号弱：把手机平放，像转盘一样绕竖直轴转"
+            : "信号弱：把手机竖起来/向后倾，屏幕朝向自己，像方向盘一样转";
 
     /// <summary>当前生效参数，显示在状态窗口，便于边试边调。</summary>
     public string ConfigSummary =>
-        $"锁止 {_cfg.MaxLockDeg:F0}°  死区 {_cfg.DeadzoneDeg:F1}°  " +
+        $"模式 {_cfg.Mode}  锁止 {_cfg.MaxLockDeg:F0}°  死区 {_cfg.DeadzoneDeg:F1}°  " +
         $"Expo {_cfg.Expo:F2}  灵敏度 {_cfg.Sensitivity:F2}  限速 {_cfg.MaxStepDegPerSec:F0}°/s";
 
-    /// <summary>把配置夹到合法范围，避免 0 锁止角导致除零、或负数曲线。</summary>
+    /// <summary>把配置夹到合法范围，避免 0 锁止角导致除零、或非法模式字符串。</summary>
     private void Normalize()
     {
+        _cfg.Mode = _cfg.Mode == "yaw" ? "yaw" : "roll";
         _cfg.MaxLockDeg = Math.Clamp(_cfg.MaxLockDeg, 30f, 1200f);
         _cfg.DeadzoneDeg = Math.Clamp(_cfg.DeadzoneDeg, 0f, 20f);
         _cfg.Sensitivity = Math.Clamp(_cfg.Sensitivity, 0.1f, 3f);
@@ -106,6 +135,7 @@ public sealed class SteeringEngine
     /// <summary>配置热重载：原地更新参数，不重置中位校准、不打断链路。</summary>
     public void ApplyConfig(SteeringConfig src)
     {
+        _cfg.Mode = src.Mode;
         _cfg.MaxLockDeg = src.MaxLockDeg;
         _cfg.DeadzoneDeg = src.DeadzoneDeg;
         _cfg.Sensitivity = src.Sensitivity;
@@ -124,11 +154,12 @@ public sealed class SteeringEngine
     public byte Brake { get; private set; }
     public ushort Buttons { get; private set; }
 
-    /// <summary>以当前姿态记录中位（校准时调用，握持姿势保持不变）。</summary>
-    public void CaptureNeutral(Quat attitude)
+    /// <summary>以最近一帧姿态记录中位（校准时调用，握持姿势保持不变）。</summary>
+    public void CaptureNeutral()
     {
-        _neutralForward = attitude.Rotate(_cfg.ForwardAxis).Horizontal();
-        _calibrated = _neutralForward.Length > 0.5f;
+        _neutralForward = LastAttitude.Rotate(_cfg.ForwardAxis).Horizontal();
+        _neutralRollDeg = MathF.Atan2(LastGravity.X, LastGravity.Y) * Rad2Deg;
+        _calibrated = true;
         _angle = 0f;
         _rawAngle = 0f;
     }
@@ -137,25 +168,52 @@ public sealed class SteeringEngine
     public void Update(AttitudeSample s)
     {
         LastAttitude = s.Attitude;
+        LastGravity = s.Gravity;
         _lastFrameTicks = DateTime.UtcNow.Ticks;
         _online = true;
 
-        // 1) 姿态解算：θ = atan2((f × f0)·ẑ, f·f0)，绕参考系世界上轴(Z)
-        var fwd = s.Attitude.Rotate(_cfg.ForwardAxis).Horizontal();
-        if (_calibrated && fwd.Length > 0.5f && _neutralForward.Length > 0.5f)
+        float theta;
+        if (_cfg.Mode == "yaw")
         {
-            var dot = Vec3.Dot(fwd, _neutralForward);
-            var cross = Vec3.Cross(fwd, _neutralForward);
-            var theta = MathF.Atan2(cross.Z, dot) * (180f / MathF.PI);
-            _rawAngle = _cfg.Invert ? -theta : theta;
+            // 绕世界竖直轴：手机 +Y 轴在参考系水平面的投影方向。
+            var f = s.Attitude.Rotate(_cfg.ForwardAxis);
+            var horizLen = MathF.Sqrt(f.X * f.X + f.Y * f.Y);
+            _signalQuality = MathF.Min(1f, horizLen);
+            var fwd = new Vec3(f.X, f.Y, 0f).Normalized();
+
+            if (_calibrated && horizLen > 0.15f && _neutralForward.Length > 0.15f)
+            {
+                var dot = Vec3.Dot(fwd, _neutralForward);
+                var cross = Vec3.Cross(fwd, _neutralForward);
+                theta = MathF.Atan2(cross.Z, dot) * Rad2Deg;
+            }
+            else
+            {
+                theta = _rawAngle; // 握法不匹配时保持上一帧，不乱跳
+            }
         }
         else
         {
-            _rawAngle = 0f;
+            // 绕视线轴（方向盘）：重力在设备屏幕平面内的方向角。
+            var g = s.Gravity;
+            var planar = MathF.Sqrt(g.X * g.X + g.Y * g.Y);
+            _signalQuality = MathF.Min(1f, planar);
+
+            if (planar > 0.15f)
+            {
+                var a = MathF.Atan2(g.X, g.Y) * Rad2Deg;
+                // 负号：常见竖握姿势下顺时针转手机（右打）得到正角。
+                theta = -WrapDeg(a - _neutralRollDeg);
+            }
+            else
+            {
+                theta = _rawAngle; // 手机平放时重力投影是噪声，保持上一帧
+            }
         }
 
-        // 2) 自适应 EMA：阈值按半锁止角比例划分「微抖 / 中等 / 大动作」，
-        //    这样把锁止角从 540 调到 270 后，小动作不会相对变钝。
+        _rawAngle = _cfg.Invert ? -theta : theta;
+
+        // 2) 自适应 EMA：阈值按半锁止角比例划分「微抖 / 中等 / 大动作」。
         var halfLock = MathF.Max(_cfg.MaxLockDeg * 0.5f, 1f);
         var d = MathF.Abs(_rawAngle - _angle);
         var alpha = d > halfLock * 0.15f ? 1.0f
@@ -163,7 +221,7 @@ public sealed class SteeringEngine
                   : 0.30f;
         var target = _angle + (_rawAngle - _angle) * alpha;
 
-        // 3) slew 限幅（默认 1400°/s @100Hz ≈ 14°/帧），抑制姿态异常跳变
+        // 3) slew 限幅（默认 1400°/s @100Hz ≈ 14°/帧）
         var maxStep = _cfg.MaxStepDegPerSec / 100f;
         var step = Math.Clamp(target - _angle, -maxStep, maxStep);
         _angle += step;
@@ -173,9 +231,7 @@ public sealed class SteeringEngine
             ? 0f
             : _angle - MathF.Sign(_angle) * _cfg.DeadzoneDeg;
 
-        // 5) 归一化 + 中位柔化曲线 → XInput 轴
-        //    curve(x) = (1-e)·x + e·x³：x=±1 仍映射到 ±1，只压低中位附近增益。
-        //    手机直握时手抖比实体摇杆明显，纯线性会让 F1 2017 在直路上摆头。
+        // 5) 归一化 + 中位柔化曲线 → XInput 轴（curve 端点仍为 ±1，不损失满打行程）
         var x = Math.Clamp(outAngle / halfLock * _cfg.Sensitivity, -1f, 1f);
         var e = _cfg.Expo;
         var curved = (1f - e) * x + e * x * x * x;
@@ -184,6 +240,13 @@ public sealed class SteeringEngine
         Throttle = s.Throttle;
         Brake = s.Brake;
         Buttons = s.Buttons;
+    }
+
+    private static float WrapDeg(float d)
+    {
+        while (d > 180f) d -= 360f;
+        while (d < -180f) d += 360f;
+        return d;
     }
 
     /// <summary>看门狗：超时未收到帧则回中并置离线（方向盘外设的底线行为）。</summary>
@@ -203,6 +266,7 @@ public sealed class SteeringEngine
         _online = false;
         _angle = 0f;
         _rawAngle = 0f;
+        _signalQuality = 0f;
         AxisValue = 0;
         Throttle = 0;
         Brake = 0;

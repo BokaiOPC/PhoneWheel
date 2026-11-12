@@ -29,7 +29,8 @@ iOS App 只能用 macOS 上的 Xcode 编译成 `.ipa`。没有 Mac 就没法生�
 | `.ipa` 产物 | **已替换为横屏新版 `dist/PhoneWheel-unsigned.ipa`**（53,307 字节，SHA256 `f610ffd5f291740ee92bfad0588d012fffb9c9f0bdf4f8877a851a0d98504579`）；旧竖屏包备份为 `dist/PhoneWheel-unsigned-portrait-OLD.ipa.bak` |
 | 横屏 / 传感器修复 | 旧包打包后的 `Info.plist` 丢失 `UISupportedInterfaceOrientations`、`UIStatusBarHidden`、`NSMotionUsageDescription`（Xcode 自动生成 plist 覆盖了源码）。新版用 `GENERATE_INFOPLIST_FILE=NO` + `INFOPLIST_FILE` + XcodeGen `info.properties` + `UIApplicationDelegate` 返回 `.landscape` 四层保障；已实测新包三键齐全，且二进制内含 `PhoneWheelAppDelegate` / `supportedInterfaceOrientationsFor` 符号 |
 | 手机连接 | `idevice_id -l` 已检测到 UDID `00008130-001435C01EDA001C`，Apple Mobile Device Service Running |
-| 待你操作 | **用 Sideloadly 重装横屏新版 `.ipa` → 信任证书 / 开发者模式 → 保持 App 前台 → 联调** |
+| 实机联调（2026-11-12 11:45 已验证） | 横屏新版已装进手机并前台运行；`127.0.0.1:27183` 4 秒收到 **25,935 B / 约 399 个 PWR1 帧**（100Hz），帧头 `50575231` 正确；插件重新编译 0 警告 0 错误、无 `crash.log` |
+| 待你操作 | **双击桌面 `PhoneWheel-Start.bat` 启动插件 → 托盘打开「状态窗口」→ 手机点「校准中位」→ 转动手机看转向条 → 进游戏绑 Xbox 手柄预设** |
 
 > ⚠️ **手机上如果已经装了初版（竖屏）PhoneWheel，必须重装这个横屏新版**。旧包因缺 `NSMotionUsageDescription`，CoreMotion 可能启动即异常，实测 USB 隧道 `127.0.0.1:27183` 读不到任何 PWR1 数据帧（`BYTES_RECEIVED 0`）。建议先用 Sideloadly 以**同一个 Apple ID** 重新 Start 覆盖安装（同 bundle ID 覆盖不会额外消耗免费账号的「7 天 10 个 App ID」配额）；只有覆盖失败或报签名冲突时，才在手机上删掉旧 App 重装。
 >
@@ -130,5 +131,5 @@ iOS App 只能用 macOS 上的 Xcode 编译成 `.ipa`。没有 Mac 就没法生�
 | **Sideloadly 报 `np_client_new failed: NP_E_CONN_FAILED` / `LOCKDOWN_E_INVALID_HOST_ID`** | 确认装的是 Apple 官网版 iTunes，打开 iTunes 连一次手机同步；手机上重插线并重新点「信任此电脑」 |
 | **提示 `maximum App ID limit ... 10 App IDs every 7 days`** | 免费账号 7 天最多注册 10 个 App ID，反复重试容易撞限；等几天或换一个 Apple ID |
 | 手机打开 App 提示「不受信任的开发者」 | 设置 → 通用 → VPN 与设备管理 → 信任你的 Apple ID |
-| 插件托盘显示「离线」 | 确认手机 App 在前台、屏幕常亮、电脑端 iproxy 隧道已就绪；数据线换一条原装线试试 |
+| 插件托盘显示「离线」 | 确认手机 App 在前台、屏幕常亮。**特别注意：Sideloadly 每次重装 App / 重插数据线会让 usbmux 会话重枚举，老 `iproxy` 进程还活着、端口还能连，但设备侧已僵死**（表现为连上端口却读 0 字节）。点托盘 **「重连 USB 隧道」** 或重启插件即可；新版插件也会在连续 4s 无帧时自动重拉 |
 | 转向没反应 | 手机点一次「校准中位」；游戏内确认已绑定 Xbox 手柄预设 |

@@ -15,6 +15,7 @@ public sealed class StatusForm : Form
     private readonly ProgressBar _throttle = new() { Minimum = 0, Maximum = 100, Width = 280, Height = 18 };
     private readonly ProgressBar _brake = new() { Minimum = 0, Maximum = 100, Width = 280, Height = 18 };
     private readonly Label _info = new() { AutoSize = true };
+    private readonly Label _config = new() { AutoSize = true, ForeColor = Color.DarkSlateGray };
     private readonly TextBox _log = new()
     {
         Multiline = true,
@@ -28,7 +29,7 @@ public sealed class StatusForm : Form
     public StatusForm()
     {
         Text = "PhoneWheel 状态";
-        ClientSize = new Size(500, 360);
+        ClientSize = new Size(500, 420);
         FormClosing += (_, e) =>
         {
             Hide();
@@ -49,6 +50,8 @@ public sealed class StatusForm : Form
         panel.Controls.Add(new Label { Text = "刹车", AutoSize = true });
         panel.Controls.Add(_brake);
         panel.Controls.Add(_info);
+        panel.Controls.Add(_config);
+        panel.Controls.Add(new Label { Text = "参数可改同目录 appsettings.json，存盘 0.5 秒后热生效，无需重新校准", AutoSize = true, ForeColor = Color.DarkSlateGray });
         panel.Controls.Add(_log);
         Controls.Add(panel);
     }
@@ -77,6 +80,11 @@ public sealed class StatusForm : Form
         _brake.Value = engine.Brake * 100 / 255;
         _info.Text = $"链路: {(link ? "在线" : "离线")}   " +
                      $"校准: {(engine.IsCalibrated ? "完成" : "未完成（请保持握持姿势点'校准中位'）")}   " +
-                     $"当前角: {engine.AngleDeg:F1}°";
+                     $"当前角: {engine.AngleDeg:F1}°   轴值: {engine.AxisValue}";
+        var summary = engine.ConfigSummary;
+        if (_config.Text != summary)
+        {
+            _config.Text = summary;
+        }
     }
 }

@@ -21,7 +21,7 @@ iPhone 伴侣 App 以 100Hz 采集 CoreMotion 姿态四元数 → 经 usbmux（i
 
 > 首次连接需在 iPhone 上"信任此电脑"。数据线同时为手机充电，可放心常亮屏使用。
 
-**本机环境状态（2026-11-12 已完成）**：Apple Mobile Device Service 运行中；ViGEmBus 1.22.0 已安装（服务 Running）；.NET SDK 8.0.428 已安装（用户级，位于 `C:\Users\94787\.dotnet`）；libimobiledevice 工具链（iproxy.exe + 依赖 DLL）已放在 `tools/iproxy/`；插件已通过 `dotnet build -c Release` 编译成功（0 警告 0 错误）。**目前只剩 iPhone 伴侣 App 的部署与实机联调。**
+**本机环境状态（2026-11-12 已完成）**：Apple Mobile Device Service 运行中；ViGEmBus 1.22.0 已安装（服务 Running）；.NET SDK 8.0.428 已安装（用户级，位于 `C:\Users\94787\.dotnet`）；libimobiledevice 工具链（iproxy.exe + 依赖 DLL）已放在 `tools/iproxy/`；插件已通过 `dotnet build -c Release` 编译成功（0 警告 0 错误）。iPhone 伴侣 App 也已在 GitHub Actions 云端编译成功，未签名包位于 **`dist/PhoneWheel-unsigned.ipa`**。**目前只剩把 .ipa 签名装进 iPhone 与实机联调。**
 
 ## 目录结构
 
@@ -71,16 +71,21 @@ src/PhoneWheel.Plugin/bin/Release/net8.0-windows/PhoneWheel.Plugin.exe
 2. 保持当前姿势，点手机 App 上的 **「校准中位」**（会通知电脑端重置水平中位；也可点电脑托盘菜单同名项）；
 3. 直接进游戏即可 —— 左右转角即方向盘锁止角内线性映射（默认 540°，可配置）。
 
-## 没有 Mac：如何把 App 装到 iPhone
+## 没有 Mac：把 App 装到 iPhone（云端编译已完成）
 
-iOS App 只能在 macOS 上编译，没有 Mac 时走「**云端编译 + 本地签名**」：
+iOS App 只能在 macOS 上编译，本项目走「**云端编译 + 本地签名**」。**云端部分已经做完**：
 
-1. 把本项目上传到一个 **Public** 的 GitHub 仓库（图形界面即可，不用命令行）；
-2. 仓库 **Actions → Build unsigned iPhone IPA → Run workflow**，等 10–15 分钟下载 `PhoneWheel-unsigned.ipa`；
-3. Windows 装 **AltServer**（+ Apple 官网版 iTunes / iCloud），数据线连手机装 AltStore；
-4. AltStore → My Apps → `+` 选这个 `.ipa`，用免费 Apple ID 签名安装。
+- Public 仓库：<https://github.com/BokaiOPC/PhoneWheel>（`main`，Actions 已跑通）
+- 成功构建：<https://github.com/BokaiOPC/PhoneWheel/actions/runs/43135835911>
+- 产物已下载到本机：**`dist/PhoneWheel-unsigned.ipa`**（未签名，49 KB，内含 `Payload/PhoneWheel.app/PhoneWheel`）
+- CI runner 用 `macos-15`（macOS 14 镜像已于 2026-11-02 从 GitHub Actions 退役，继续写 `macos-14` 会让任务 0 秒被取消）
 
-完整逐步截图级说明、Sideloadly 备选、7 天刷新规则与排障见 **`docs/SIDELOAD.md`**。
+你只剩两步：
+
+1. Windows 上装 **Sideloadly** 或 **AltServer**（AMDS 已在本机运行）；
+2. 数据线连手机 → 用免费 Apple ID 给 `dist/PhoneWheel-unsigned.ipa` 签名安装。
+
+完整逐步截图级说明、Sideloadly / AltStore 两条路线、7 天刷新规则与排障见 **`docs/SIDELOAD.md`**。
 
 > 如果觉得 GitHub 麻烦，**借一台 Mac 用 30 分钟**用 Xcode 真机运行一次其实更省事，之后所有刷新都在这台 Windows 上完成。
 

@@ -25,8 +25,8 @@ iOS App 只能用 macOS 上的 Xcode 编译成 `.ipa`。没有 Mac 就没法生�
 | 项目 | 状态 |
 |------|------|
 | Public 仓库 | <https://github.com/BokaiOPC/PhoneWheel>（账号 `BokaiOPC`，默认分支 `main`，24 个源码文件） |
-| 云端编译 | 已成功：**最新前台自动恢复版** <https://github.com/BokaiOPC/PhoneWheel/actions/runs/43166450196>；前版 <.../43147881853> 修横屏；初版 <.../43135835911> 是竖屏包，**已废弃** |
-| `.ipa` 产物 | **已是最新前台恢复版 `dist/PhoneWheel-unsigned.ipa`**（57,179 字节，SHA256 `e56b857c61d305e2432fba4ee432e511ad16d1449e0d051142548456f5373e0e`）；前一版备份 `dist/PhoneWheel-unsigned-previous.ipa.bak`（53,307 B），旧竖屏包 `dist/PhoneWheel-unsigned-portrait-OLD.ipa.bak` |
+| 云端编译 | 已成功：**最新版（含踏板修复）** <https://github.com/BokaiOPC/PhoneWheel/actions/runs/43171444459>；前版 <.../43166450196> 修前台恢复，<.../43147881853> 修横屏，初版 <.../43135835911> 是竖屏包，**已废弃** |
+| `.ipa` 产物 | **已是最新版 `dist/PhoneWheel-unsigned.ipa`**（59,401 字节，SHA256 `d58639fd821c5c3f…`）；前一版备份 `dist/PhoneWheel-unsigned-previous.ipa.bak`，旧竖屏包 `dist/PhoneWheel-unsigned-portrait-OLD.ipa.bak` |
 | 横屏 / 传感器修复 | 旧包打包后的 `Info.plist` 丢失 `UISupportedInterfaceOrientations`、`UIStatusBarHidden`、`NSMotionUsageDescription`（Xcode 自动生成 plist 覆盖了源码）。新版用 `GENERATE_INFOPLIST_FILE=NO` + `INFOPLIST_FILE` + XcodeGen `info.properties` + `UIApplicationDelegate` 返回 `.landscape` 四层保障；已实测新包三键齐全，且二进制内含 `PhoneWheelAppDelegate` / `supportedInterfaceOrientationsFor` 符号 |
 | 手机连接 | `idevice_id -l` 已检测到 UDID `00008130-001435C01EDA001C`，Apple Mobile Device Service Running |
 | 实机联调（2026-11-12 11:45 已验证） | 横屏新版已装进手机并前台运行；`127.0.0.1:27183` 4 秒收到 **25,935 B / 约 399 个 PWR1 帧**（100Hz），帧头 `50575231` 正确；插件重新编译 0 警告 0 错误、无 `crash.log` |

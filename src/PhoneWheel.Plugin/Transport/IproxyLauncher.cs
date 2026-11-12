@@ -25,6 +25,26 @@ public sealed class IproxyLauncher : IAsyncDisposable
     public int LocalPort => _localPort;
     public bool IsRunning => _proc is { HasExited: false };
 
+    /// <summary>
+    /// 主动重拉 USB 隧道。用于「iproxy 进程还活着、端口还在监听，但设备侧连接已僵死」的场景：
+    /// 重装 iPhone App、重新插拔数据线、手机锁屏后 usbmux 会话重枚举都会造成这种半死状态。
+    /// 此时进程不会退出，SuperviseAsync 的 WaitForExitAsync 也不会返回，必须显式杀掉触发重拉。
+    /// </summary>
+    public void RequestRestart()
+    {
+        try
+        {
+            if (_proc is { HasExited: false })
+            {
+                _proc.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+            // 进程已退出或权限不足；SuperviseAsync 自身也会兜底重拉
+        }
+    }
+
     public event Action<string>? Log;
 
     public IproxyLauncher(string exePath, int localPort = 27183, int devicePort = 12345)
@@ -69,12 +89,19 @@ public sealed class IproxyLauncher : IAsyncDisposable
                 _ = DrainAsync(_proc);
                 Log?.Invoke($"iproxy 已启动（本地 {_localPort} → 设备 {_devicePort}）");
 
+                var startedAt = Environment.TickCount64;
                 var ok = await WaitPortAsync(_localPort, 8000);
                 Log?.Invoke(ok
                     ? "USB 隧道就绪"
                     : "USB 隧道未就绪（设备未连接 / 未信任此电脑 / AMDS 未运行？）");
 
                 await _proc.WaitForExitAsync(_cts.Token);
+                // 稳定运行过一段时间说明上次是外部扰动（拔线 / 重装 App），
+                // 重置退避计数，让下一次重拉立刻发生而不是等满 5 秒。
+                if (Environment.TickCount64 - startedAt > 30_000)
+                {
+                    _restartCount = 0;
+                }
                 Log?.Invoke($"iproxy 退出 code={_proc.ExitCode}");
             }
             catch (OperationCanceledException)

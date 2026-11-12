@@ -88,9 +88,9 @@ src/PhoneWheel.Plugin/bin/Release/net8.0-windows/PhoneWheel.Plugin.exe
 iOS App 只能在 macOS 上编译，本项目走「**云端编译 + 本地签名**」。**云端部分已经做完**：
 
 - Public 仓库：<https://github.com/BokaiOPC/PhoneWheel>（`main`，Actions 已跑通）
-- 成功构建：**横屏新版** <https://github.com/BokaiOPC/PhoneWheel/actions/runs/43147881853>（初版 <.../43135835911> 为竖屏包，已废弃）
-- 产物已下载到本机：**`dist/PhoneWheel-unsigned.ipa`**（横屏版，53,307 字节，未签名；旧竖屏包备份在 `dist/PhoneWheel-unsigned-portrait-OLD.ipa.bak`）
-- 已验证新包 `Payload/PhoneWheel.app/Info.plist` 含 `UISupportedInterfaceOrientations = [LandscapeLeft, LandscapeRight]`、`UIStatusBarHidden = true`、`NSMotionUsageDescription`；二进制含强制横屏 AppDelegate
+- 成功构建：**最新前台自动恢复版** <https://github.com/BokaiOPC/PhoneWheel/actions/runs/43166450196>（前一版 <.../43147881853> 修横屏；初版 <.../43135835911> 为竖屏包，已废弃）
+- 产物已下载到本机：**`dist/PhoneWheel-unsigned.ipa`**（57,179 字节，SHA256 `e56b857c61d305e2432fba4ee432e511ad16d1449e0d051142548456f5373e0e`，未签名）；前一版备份在 `dist/PhoneWheel-unsigned-previous.ipa.bak`，旧竖屏包在 `dist/PhoneWheel-unsigned-portrait-OLD.ipa.bak`
+- 已验证新包 `Payload/PhoneWheel.app/Info.plist` 含 `UISupportedInterfaceOrientations = [LandscapeLeft, LandscapeRight]`、`UIStatusBarHidden = true`、`NSMotionUsageDescription`；二进制含 `applicationDidBecomeActive` / `allowLocalEndpointReuse` / `scenePhase`（前台恢复监听）
 - CI runner 用 `macos-15`（macOS 14 镜像已于 2026-11-02 从 GitHub Actions 退役，继续写 `macos-14` 会让任务 0 秒被取消）
 
 > ⚠️ 手机上若已装初版（竖屏）App，**请先用 Sideloadly 重装这个横屏新版**：旧包缺 `NSMotionUsageDescription`，实测 USB 隧道读不到 PWR1 姿态帧。
@@ -165,7 +165,9 @@ iOS App 只能在 macOS 上编译，本项目走「**云端编译 + 本地签名
 - **双击后完全没反应**：先看 exe 同目录有没有 `crash.log`（新版会记录异常并弹窗）。没有 crash.log 就说明已正常启动 —— 托盘程序本来就没有主窗口，到右下角托盘（可能在 `^` 里）右键 → **状态窗口**。
 - **iproxy 启动失败/隧道不通**：确认 iTunes（或 Apple Mobile Device Support）已安装、Apple Mobile Device Service 正在运行；手机已解锁并信任电脑；重插数据线。本机 `iproxy` 新版参数是 `27183:12345`（冒号单参数）。
 - **端口能连但读不到任何 PWR1 帧（链路显示离线）**：多半是上述「隧道僵死」，点托盘 **「重连 USB 隧道」** 或重启插件即可；新版也会自动重拉。注意 Sideloadly 每次重装 App 都会触发一次。
-- **日志反复「自动重拉 iproxy」却始终无数据**：这次多半不是隧道问题，而是 **手机 App 被 iOS 挂起**（锁屏、切到别的应用、手机放下）。把 PhoneWheel 切回前台并解锁即可；App 内已禁用自动锁屏，但手动锁屏仍会让网络监听停掉。`idevice_id -l` 能看到 UDID 只证明数据线连着，不代表 App 在监听 TCP 12345（独立隧道会报 `Error connecting to device`）。
+- **日志反复「自动重拉 iproxy」却始终无数据**：多半不是隧道问题，而是 **手机 App 被 iOS 挂起**（锁屏、切到别的应用、手机放下）。`idevice_id -l` 能看到 UDID 只证明数据线连着；此时独立 `iproxy` 连 12345 报 `Error connecting to device`，而连系统 lockdown 端口 `62078` 却能成功 —— 这个二分法可以直接判定「手机/驱动/信任都正常，只有 App 没在监听」。
+  - **当前已装的横屏版**：iOS 回收 `NWListener` 后旧代码不会重建监听，**光切回前台不够**，要**上划强制退出 PhoneWheel 再重新打开**。
+  - **新版（已构建完成：`dist/PhoneWheel-unsigned.ipa`，57,179 字节）**：`applicationDidBecomeActive` + `scenePhase` 会重建监听（`allowLocalEndpointReuse` + 延迟重绑 + 失败重试 + 幂等节流）。用 Sideloadly 重装这一次后，以后切回前台自动恢复，不用再强制退出。
 - **虚拟手柄不被识别**：检查 ViGEmBus 是否安装；以管理员运行一次安装程序；设备管理器中应出现"Virtual Xbox 360 Controller"。
 - **手机转了但游戏没反应**：看状态窗口"链路"是否在线、校准是否完成、转向条是否随手机左右变化。CoreMotion 的原始 device-motion 流**不会**弹「运动与健身」授权框，不弹窗是正常的；`NSMotionUsageDescription` 只是 Info.plist 必备键，无需手动去设置里开权限。
 - **延迟/抖动**：状态窗口能实时看到 `锁止 / 死区 / Expo / 灵敏度 / 限速`；边跑边改同目录 `appsettings.json`，0.5 秒热生效，不用重启也不用重新校准。100Hz 帧 + 本地回环，端到端通常 12–25ms。
